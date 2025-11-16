@@ -100,7 +100,6 @@
             } catch (error) {
                 console.error('Erro na requisição:', error);
                 const msg = 'Falha de comunicação com o servidor. Verifique se o XAMPP (Apache, MySQL) está rodando.';
-                // Simplesmente joga o erro para o componente tratar
                 throw error;
             }
         }
