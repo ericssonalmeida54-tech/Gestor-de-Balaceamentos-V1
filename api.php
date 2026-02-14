@@ -110,7 +110,7 @@ switch ($action) {
                     }
                     
                     // Tipos: s=string, i=integer, d=double/decimal
-                     $stmt->bind_param("ssisddissssss",
+                     $stmt->bind_param("ssissddissssss",
                         $op['operationId'],
                         $op['modelInfo']['model'],
                         $op['sequence'],
