@@ -2211,7 +2211,7 @@
             lastProcessedOperations = ops;
             layoutEditorOps = JSON.parse(JSON.stringify(lastProcessedOperations));
             layoutHasChanges = false;
-            currentRotation = lastProcessedOperations[0].modelInfo.rotation || 0;
+            currentRotation = (lastProcessedOperations[0].modelInfo.rotation !== undefined) ? lastProcessedOperations[0].modelInfo.rotation : 90;
 
             if(ui.editLayoutToggle) ui.editLayoutToggle.checked = false;
             if(ui.layoutViewer) ui.layoutViewer.classList.remove('edit-mode');
@@ -2252,7 +2252,7 @@
 
             layoutEditorOps = JSON.parse(JSON.stringify(lastProcessedOperations));
             layoutHasChanges = false;
-            currentRotation = lastProcessedOperations[0].modelInfo.rotation || 0;
+            currentRotation = (lastProcessedOperations[0].modelInfo.rotation !== undefined) ? lastProcessedOperations[0].modelInfo.rotation : 90;
 
             ui.layoutModalTitle.textContent = `Layout da Célula: ${currentProcessModelName}`;
             showModal('layoutModal');

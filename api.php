@@ -312,24 +312,51 @@ switch ($action) {
         if (isset($data['modelName'], $data['field'], $data['value'])) {
             $modelName = $data['modelName'];
             $field = $data['field'];
+            $value = $data['value'];
             $allowed = ['brand', 'hasProcessPdf', 'hasLayoutPdf', 'rotation', 'flowConnections'];
 
             if (in_array($field, $allowed)) {
-                $jsonValue = json_encode($data['value']);
-                $sql = "UPDATE operations SET modelInfo = JSON_SET(COALESCE(modelInfo, '{}'), '$.$field', CAST(? AS JSON)) WHERE model = ?";
-                $stmt = $conn->prepare($sql);
-                if ($stmt) {
-                    $stmt->bind_param("ss", $jsonValue, $modelName);
-                    if ($stmt->execute()) {
-                        $response = ['status' => 'success'];
+                // Busca um registro para pegar o modelInfo atual
+                $selectSql = "SELECT modelInfo FROM operations WHERE model = ? LIMIT 1";
+                $selectStmt = $conn->prepare($selectSql);
+                if ($selectStmt) {
+                    $selectStmt->bind_param("s", $modelName);
+                    $selectStmt->execute();
+                    $result = $selectStmt->get_result();
+                    if ($result->num_rows > 0) {
+                        $row = $result->fetch_assoc();
+                        $currentInfo = json_decode($row['modelInfo'], true) ?? [];
+
+                        // Atualiza o campo no array PHP
+                        $currentInfo[$field] = $value;
+                        $newJson = json_encode($currentInfo);
+
+                        if (json_last_error() === JSON_ERROR_NONE) {
+                            // Salva de volta no banco para TODAS as operações do modelo
+                            $updateSql = "UPDATE operations SET modelInfo = ? WHERE model = ?";
+                            $updateStmt = $conn->prepare($updateSql);
+                            if ($updateStmt) {
+                                $updateStmt->bind_param("ss", $newJson, $modelName);
+                                if ($updateStmt->execute()) {
+                                    $response = ['status' => 'success'];
+                                } else {
+                                    $response['message'] = "Erro SQL ao salvar modelInfo: " . $updateStmt->error;
+                                    error_log("UpdateModelInfoField update failed: " . $updateStmt->error);
+                                }
+                                $updateStmt->close();
+                            } else {
+                                $response['message'] = 'Erro ao preparar update.';
+                            }
+                        } else {
+                            $response['message'] = 'Erro ao codificar novo JSON.';
+                        }
                     } else {
-                        $response['message'] = "Erro SQL ao atualizar campo '$field': " . $stmt->error;
-                        error_log("UpdateModelInfoField execute failed: (" . $stmt->errno . ") " . $stmt->error);
+                        $response['message'] = 'Modelo não encontrado.';
                     }
-                    $stmt->close();
+                    $selectStmt->close();
                 } else {
-                    $response['message'] = 'Erro ao preparar a atualização do campo.';
-                    error_log("UpdateModelInfoField prepare failed: " . $conn->error);
+                    $response['message'] = 'Erro ao buscar modelo.';
+                    error_log("UpdateModelInfoField select failed: " . $conn->error);
                 }
             } else {
                 $response['message'] = 'Campo (' . htmlspecialchars($field) . ') não permitido para atualização.';
