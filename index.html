@@ -603,22 +603,6 @@
         );
 
         // --- Funções Auxiliares da API ---
-        const getVisualCoordinates = (x, y) => {
-            const rot = (currentRotation % 360 + 360) % 360;
-            if (rot === 90) return { x: 1 - y, y: x };
-            if (rot === 180) return { x: 1 - x, y: 1 - y };
-            if (rot === 270) return { x: y, y: 1 - x };
-            return { x, y };
-        };
-
-        const getOriginalCoordinatesFromVisual = (visualX, visualY) => {
-            const rot = (currentRotation % 360 + 360) % 360;
-            if (rot === 90) return { x: visualY, y: 1 - visualX };
-            if (rot === 180) return { x: 1 - visualX, y: 1 - visualY };
-            if (rot === 270) return { x: 1 - visualY, y: visualX };
-            return { x: visualX, y: visualY };
-        };
-
         async function apiRequest(url, options = {}) {
             try {
                 const response = await fetch(url, options);
@@ -1309,11 +1293,11 @@
                 <div class="mt-3 p-3 bg-white border rounded-lg space-y-2">
                     <h5 class="text-sm font-bold text-slate-700">Checklist do Balanceamento</h5>
                     <div class="flex items-center gap-2 text-sm ${hasProcess ? 'text-green-600 font-medium' : 'text-slate-500'}">
-                        <i data-lucide="file-text" class="w-4 h-4 ${hasProcess ? 'text-green-600' : 'text-slate-400'}"></i>
+                        ${hasProcess ? '<i data-lucide="check-square" class="w-4 h-4"></i>' : '<i data-lucide="square" class="w-4 h-4"></i>'}
                         <span>PDF do Balanceamento Carregado</span>
                     </div>
                     <div class="flex items-center gap-2 text-sm ${hasLayout ? 'text-green-600 font-medium' : 'text-slate-500'}">
-                        <i data-lucide="layout-template" class="w-4 h-4 ${hasLayout ? 'text-green-600' : 'text-slate-400'}"></i>
+                        ${hasLayout ? '<i data-lucide="check-square" class="w-4 h-4"></i>' : '<i data-lucide="square" class="w-4 h-4"></i>'}
                         <span>PDF do Layout Carregado</span>
                     </div>
                 </div>
@@ -1722,7 +1706,8 @@
                        throw new Error("O arquivo CSV está vazio ou é inválido.");
                     }
                     const parsedData = parseCrystalReportCSV(csvText, celula, brand);
-                    await saveExtractedData(parsedData);
+                    const groupedData = processAndGroupOperations(parsedData);
+                    await saveExtractedData(groupedData);
                 } catch (error) {
                     console.error("Erro detalhado ao processar CSV:", error);
                     fileStatusEl.innerHTML = `<span class="text-red-500 font-semibold" title="${error.stack || ''}">Erro: ${error.message || 'Falha ao ler o CSV.'}</span>`;
@@ -1855,30 +1840,57 @@
             if (!data.operations || data.operations.length === 0) return data;
 
             const processedOps = [];
-            let i = 0;
-            while (i < data.operations.length) {
+            let accumulatedTime = 0;
+            let accumulatedDescriptions = [];
+            let accumulatedOps = [];
+
+            for (let i = 0; i < data.operations.length; i++) {
                 let currentOp = data.operations[i];
                 const agrupValue = (currentOp.agrup || "").trim().toUpperCase();
 
-                if (agrupValue === "A" && i + 1 < data.operations.length) {
-                    let nextOp = data.operations[i + 1];
-                    const combinedOp = {
-                        ...nextOp,
-                        description: `${currentOp.description} / ${nextOp.description}`,
-                        timeCentesimal: (parseFloat(currentOp.timeCentesimal) + parseFloat(nextOp.timeCentesimal)).toFixed(3),
-                        timeSeconds: (parseFloat(currentOp.timeSeconds) + parseFloat(nextOp.timeSeconds)).toFixed(3),
-                        operatorsCalc: (parseFloat(currentOp.operatorsCalc) + parseFloat(nextOp.operatorsCalc)).toFixed(2),
-                        operatorsReal: nextOp.operatorsReal,
-                        isGrouped: true,
-                        originalOps: [currentOp, nextOp]
-                    };
-                    processedOps.push(combinedOp);
-                    i += 2;
+                if (agrupValue === "A") {
+                    // É uma sub-operação, acumula
+                    accumulatedTime += parseFloat(currentOp.timeCentesimal) || 0;
+                    accumulatedDescriptions.push(currentOp.description);
+                    accumulatedOps.push(currentOp);
                 } else {
-                    processedOps.push(currentOp);
-                    i += 1;
+                    // É uma operação principal (ou independente)
+                    if (accumulatedOps.length > 0) {
+                        // Se tem acumulado, soma na operação principal
+                        const mainOpTime = parseFloat(currentOp.timeCentesimal) || 0;
+                        const totalTime = accumulatedTime + mainOpTime;
+
+                        // Atualiza a descrição para incluir o histórico (opcional, mas recomendado)
+                        // Descrição Final = Descrições Acumuladas + Descrição Principal
+                        const finalDescription = [...accumulatedDescriptions, currentOp.description].join(' / ');
+
+                        const combinedOp = {
+                            ...currentOp,
+                            description: finalDescription,
+                            timeCentesimal: totalTime.toFixed(3),
+                            timeSeconds: (totalTime * 60).toFixed(3),
+                            // Mantém operadoresReal da principal
+                            isGrouped: true,
+                            originalOps: [...accumulatedOps, currentOp]
+                        };
+                        processedOps.push(combinedOp);
+
+                        // Reseta acumuladores
+                        accumulatedTime = 0;
+                        accumulatedDescriptions = [];
+                        accumulatedOps = [];
+                    } else {
+                        // Operação independente normal
+                        processedOps.push(currentOp);
+                    }
                 }
             }
+
+            // Caso existam sub-operações "órfãs" no final do arquivo (sem operação principal depois)
+            if (accumulatedOps.length > 0) {
+                console.warn("Sub-operações órfãs encontradas no final do arquivo:", accumulatedOps);
+            }
+
             return { ...data, operations: processedOps };
         };
 
@@ -2020,22 +2032,6 @@
         // --- Ações ---
         const updateProcessStatus = async (modelName, newStatus) => {
             if (!modelName) return;
-
-            let targetBtn = null;
-            let originalContent = '';
-
-            if (newStatus === 'aprovado') targetBtn = ui.approveProcessBtn;
-            else if (newStatus === 'reprovado') targetBtn = ui.rejectProcessBtn;
-
-            if (targetBtn) {
-                originalContent = targetBtn.innerHTML;
-                targetBtn.disabled = true;
-                targetBtn.innerHTML = '<div class="loader !w-5 !h-5 !border-2"></div>';
-            }
-            // Desabilita o outro botão também para evitar conflito
-            if (ui.approveProcessBtn) ui.approveProcessBtn.disabled = true;
-            if (ui.rejectProcessBtn) ui.rejectProcessBtn.disabled = true;
-
             const response = await apiRequest(API_URL, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -2047,15 +2043,6 @@
                 lastProcessedOperations = updatedOps;
                 renderOperationsList(updatedOps);
                 renderProcessesPage();
-            } else {
-                // Se falhar, restaura os botões
-                if (targetBtn) {
-                    targetBtn.innerHTML = originalContent;
-                    targetBtn.disabled = false;
-                }
-                if (ui.approveProcessBtn) ui.approveProcessBtn.disabled = false;
-                if (ui.rejectProcessBtn) ui.rejectProcessBtn.disabled = false;
-                showCustomAlert("Falha ao atualizar status: " + response.message, "Erro");
             }
         };
 
@@ -2102,11 +2089,6 @@
         const handleSaveObservation = async () => {
             if (!currentOperation) return;
             const text = ui.observationText.value;
-
-            const originalContent = ui.saveObservationBtn.innerHTML;
-            ui.saveObservationBtn.disabled = true;
-            ui.saveObservationBtn.innerHTML = '<div class="loader !w-5 !h-5 !border-2"></div>';
-
             // CORRIGIDO: usa a action 'updateOperation'
             const response = await apiRequest(API_URL, {
                 method: 'POST',
@@ -2125,9 +2107,6 @@
                  ui.observationStatus.textContent = "Falha ao salvar: " + response.message;
                 ui.observationStatus.className = "text-sm mt-2 text-red-600";
             }
-
-            ui.saveObservationBtn.innerHTML = originalContent;
-            ui.saveObservationBtn.disabled = false;
         };
 
         // --- Layout ---
@@ -2258,11 +2237,8 @@
                 if (op.layoutPosition && typeof op.layoutPosition.x === 'number' && typeof op.layoutPosition.y === 'number') {
                     const marker = document.createElement('div');
                     marker.className = 'op-marker';
-
-                    const { x, y } = getVisualCoordinates(op.layoutPosition.x, op.layoutPosition.y);
-
-                    marker.style.left = `${x * 100}%`;
-                    marker.style.top = `${y * 100}%`;
+                    marker.style.left = `${op.layoutPosition.x * 100}%`;
+                    marker.style.top = `${op.layoutPosition.y * 100}%`;
                     marker.dataset.opId = op.operationId;
                     let markerColor = 'rgba(107, 114, 128, 0.8)';
                     let markerSize = '32px';
@@ -2317,12 +2293,7 @@
             if (placedOps.length < 2) return;
             const containerWidth = markerContainer.clientWidth;
             const containerHeight = markerContainer.clientHeight;
-
-            const points = placedOps.map(op => {
-                const { x, y } = getVisualCoordinates(op.layoutPosition.x, op.layoutPosition.y);
-                return `${x * containerWidth},${y * containerHeight}`;
-            }).join(' ');
-
+            const points = placedOps.map(op => `${op.layoutPosition.x * containerWidth},${op.layoutPosition.y * containerHeight}`).join(' ');
             const polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
             polyline.setAttribute('points', points);
             polyline.setAttribute('class', 'flow-line');
@@ -2363,11 +2334,8 @@
             }
             const container = ui.layoutViewer;
             const rect = container.getBoundingClientRect();
-            const visualX = (event.clientX - rect.left) / rect.width;
-            const visualY = (event.clientY - rect.top) / rect.height;
-
-            const { x, y } = getOriginalCoordinatesFromVisual(visualX, visualY);
-
+            const x = (event.clientX - rect.left) / rect.width;
+            const y = (event.clientY - rect.top) / rect.height;
             const op = layoutEditorOps.find(op => op.operationId === selectedOpToPlace);
             if (!op) return;
             op.layoutPosition = { x, y };
