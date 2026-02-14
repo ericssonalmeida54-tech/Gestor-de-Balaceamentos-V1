@@ -308,6 +308,37 @@ switch ($action) {
         }
         break;
 
+    case 'updateModelInfoField':
+        if (isset($data['modelName'], $data['field'], $data['value'])) {
+            $modelName = $data['modelName'];
+            $field = $data['field'];
+            $allowed = ['brand', 'hasProcessPdf', 'hasLayoutPdf', 'rotation', 'flowConnections'];
+
+            if (in_array($field, $allowed)) {
+                $jsonValue = json_encode($data['value']);
+                $sql = "UPDATE operations SET modelInfo = JSON_SET(COALESCE(modelInfo, '{}'), '$.$field', CAST(? AS JSON)) WHERE model = ?";
+                $stmt = $conn->prepare($sql);
+                if ($stmt) {
+                    $stmt->bind_param("ss", $jsonValue, $modelName);
+                    if ($stmt->execute()) {
+                        $response = ['status' => 'success'];
+                    } else {
+                        $response['message'] = "Erro SQL ao atualizar campo '$field': " . $stmt->error;
+                        error_log("UpdateModelInfoField execute failed: (" . $stmt->errno . ") " . $stmt->error);
+                    }
+                    $stmt->close();
+                } else {
+                    $response['message'] = 'Erro ao preparar a atualização do campo.';
+                    error_log("UpdateModelInfoField prepare failed: " . $conn->error);
+                }
+            } else {
+                $response['message'] = 'Campo (' . htmlspecialchars($field) . ') não permitido para atualização.';
+            }
+        } else {
+            $response['message'] = 'Dados incompletos para atualizar (requer: modelName, field, value).';
+        }
+        break;
+
     case 'updateBrand':
         if(isset($data['modelName'], $data['brand'])) {
             // Garante que modelInfo seja tratado como objeto vazio se for NULL, evitando sobrescrita acidental
