@@ -14,10 +14,21 @@ $id = 'admin_user_01'; // ID único para o admin
 // Criptografa a senha usando o método padrão do PHP
 $password_hash = password_hash($password_plana, PASSWORD_DEFAULT);
 
-// Prepara o comando SQL para inserir/atualizar o usuário
-// Assumindo que a tabela `users` tem as colunas: id, username, password, name, role
-// Usamos REPLACE INTO para que, se um usuário com o mesmo 'id' já existir, ele seja atualizado.
-$sql = "REPLACE INTO users (id, username, password, name, role) VALUES (?, ?, ?, ?, ?)";
+// Verifica se o usuário já existe
+$checkSql = "SELECT id FROM users WHERE id = ?";
+$checkStmt = $conn->prepare($checkSql);
+if ($checkStmt) {
+    $checkStmt->bind_param("s", $id);
+    $checkStmt->execute();
+    $checkStmt->store_result();
+    if ($checkStmt->num_rows > 0) {
+        die("<p style='color: red; font-weight: bold;'>ERRO DE SEGURANÇA: O usuário com ID 'admin_user_01' já existe.</p><p>Execução abortada.</p>");
+    }
+    $checkStmt->close();
+}
+
+// Prepara o comando SQL para inserir o usuário
+$sql = "INSERT INTO users (id, username, password, name, role) VALUES (?, ?, ?, ?, ?)";
 
 $stmt = $conn->prepare($sql);
 if ($stmt === false) {

@@ -310,7 +310,8 @@ switch ($action) {
 
     case 'updateBrand':
         if(isset($data['modelName'], $data['brand'])) {
-            $sql = "UPDATE operations SET modelInfo = JSON_SET(modelInfo, '$.brand', ?) WHERE model = ?";
+            // Garante que modelInfo seja tratado como objeto vazio se for NULL, evitando sobrescrita acidental
+            $sql = "UPDATE operations SET modelInfo = JSON_SET(COALESCE(modelInfo, '{}'), '$.brand', ?) WHERE model = ?";
             $stmt = $conn->prepare($sql);
             if ($stmt) {
                 $stmt->bind_param("ss", $data['brand'], $data['modelName']);
