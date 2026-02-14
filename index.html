@@ -109,6 +109,14 @@
                 stroke-dashoffset: -12;
             }
         }
+        @media print {
+            aside, header, .no-print, button, .modal-backdrop { display: none !important; }
+            #app-container, main, #result-card { height: auto !important; overflow: visible !important; display: block !important; }
+            #result-card { border: none; box-shadow: none; }
+            body { background: white; overflow: visible !important; }
+        }
+        .split-view #process-view-container { width: 50%; display: flex; flex-direction: column; }
+        .split-view #split-layout-container { display: flex !important; width: 50%; height: 100%; border-left: 1px solid #e5e7eb; position: relative; background: #f8fafc; }
     </style>
 </head>
 <body class="text-slate-800">
@@ -232,6 +240,7 @@
                                 <div id="welcome-message" class="text-center text-slate-400 m-auto p-4"><i data-lucide="layout-grid" class="mx-auto h-16 w-16 mb-4 stroke-1"></i><h3 class="text-lg font-medium">Área de Resultados</h3><p>Os detalhes do balanceamento ou da operação consultada serão exibidos aqui.</p></div>
                                 <div id="error-message" class="hidden text-center text-red-500 font-medium m-auto"><i data-lucide="x-circle" class="mx-auto h-12 w-12 mb-2"></i><p id="error-text">Operação não encontrada.</p></div>
 
+                                <div id="split-layout-container" class="hidden"></div>
                                 <div id="process-view-container" class="hidden flex-1 flex-col h-full">
                                     <div id="process-header-block" class="mb-4 p-4 bg-slate-50 rounded-lg border"></div>
 
@@ -255,7 +264,8 @@
                                                         <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Descrição</th>
                                                         <th class="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Eficiência</th>
                                                         <th class="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Tempo</th>
-                                                        <th class="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">OP.</th>
+                                                        <th class="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Pessoas (Calc)</th>
+                                                        <th class="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Pessoas (Real)</th>
                                                         <th class="px-4 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Equipamento/Máquina</th>
                                                         <th class="px-4 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Ações</th>
                                                     </tr>
@@ -498,6 +508,13 @@
                             <div class="w-11 h-6 bg-gray-600 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-red-600"></div>
                         </div>
                     </label>
+                    <label class="flex items-center gap-2 cursor-pointer text-sm font-medium ml-2">
+                        <span>Modo Conexão</span>
+                        <div class="relative">
+                            <input type="checkbox" id="connection-mode-toggle" class="sr-only peer">
+                            <div class="w-11 h-6 bg-gray-600 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                        </div>
+                    </label>
                     <button id="save-layout-btn" class="hidden bg-green-600 text-white font-bold py-1.5 px-4 rounded-lg hover:bg-green-700 flex items-center justify-center gap-2 text-sm">
                         <i data-lucide="save" class="w-4 h-4"></i> Salvar
                     </button>
@@ -594,6 +611,9 @@
         let layoutEditorOps = [];
         let layoutHasChanges = false;
         let currentRotation = 0; // Para rotação do PDF
+        let isConnecting = false;
+        let connectionStartOpId = null;
+        let manualConnections = [];
 
         let chartInstances = {};
 
@@ -773,7 +793,7 @@
         const renderPublicProcessDetails = (modelName, operations) => {
             // CORRIGIDO: Garante que o modal de layout não esteja aberto por engano
             showModal('layoutModal', false);
-            
+
             const publicContent = ui.publicContent;
             if (!publicContent) return;
             const firstOp = operations[0];
@@ -885,7 +905,7 @@
                     window.open(url, '_blank');
                 });
             }
-            
+
             // CORRIGIDO: Verifica se o layout existe antes de mostrar o botão
             const layoutUrl = `layouts/${sanitizedModelName}.pdf`;
             fetch(layoutUrl, { method: 'HEAD' })
@@ -1215,6 +1235,7 @@
                     </td>
                     <td class="px-4 py-3 text-sm font-mono text-center font-bold ${colorClass}">${value}</td>
                     <td class="px-4 py-3 text-sm font-mono text-center text-slate-600">${op.timeCentesimal}</td>
+                    <td class="px-4 py-3 text-sm font-mono text-center text-slate-600">${op.operatorsCalc || '-'}</td>
                     <td class="px-4 py-3 text-sm font-mono text-center text-slate-600">${op.operatorsReal}</td>
                     <td class="px-4 py-3 text-sm text-slate-600 whitespace-nowrap">${op.machine || 'N/A'}</td>
                     <td class="px-4 py-3 text-center">
@@ -1300,6 +1321,7 @@
                         ${hasLayout ? '<i data-lucide="check-square" class="w-4 h-4"></i>' : '<i data-lucide="square" class="w-4 h-4"></i>'}
                         <span>PDF do Layout Carregado</span>
                     </div>
+                    <div id="manual-checklist-container"></div>
                 </div>
             `;
 
@@ -1320,6 +1342,12 @@
                         </div>
                     </div>
                     <div class="flex items-center gap-4 ml-auto">
+                         <button id="print-process-btn" onclick="window.print()" class="bg-slate-200 text-slate-800 font-semibold py-2 px-4 rounded-lg hover:bg-slate-300 flex items-center gap-2 text-sm">
+                            <i data-lucide="printer" class="w-4 h-4"></i>Imprimir
+                         </button>
+                         <button id="split-view-btn" class="bg-slate-200 text-slate-800 font-semibold py-2 px-4 rounded-lg hover:bg-slate-300 flex items-center gap-2 text-sm">
+                            <i data-lucide="columns" class="w-4 h-4"></i>Split View
+                         </button>
                          <button id="manage-layout-btn" class="bg-slate-200 text-slate-800 font-semibold py-2 px-4 rounded-lg hover:bg-slate-300 flex items-center gap-2 text-sm">
                             <i data-lucide="layout-template" class="w-4 h-4"></i>Gerir Layout e PDF
                          </button>
@@ -1347,11 +1375,38 @@
                 manageLayoutBtn.addEventListener('click', openLayoutModal);
             }
 
+            const splitViewBtn = document.getElementById('split-view-btn');
+            if (splitViewBtn) {
+                splitViewBtn.addEventListener('click', () => {
+                    const resultCard = document.getElementById('result-card');
+                    const splitContainer = document.getElementById('split-layout-container');
+
+                    if (resultCard.classList.contains('split-view')) {
+                        // Disable Split View
+                        resultCard.classList.remove('split-view', 'flex', 'flex-row');
+                        splitContainer.innerHTML = '';
+                        splitContainer.classList.add('hidden');
+                        splitViewBtn.classList.remove('bg-blue-100', 'text-blue-800');
+                    } else {
+                        // Enable Split View
+                        resultCard.classList.add('split-view', 'flex', 'flex-row');
+                        splitContainer.classList.remove('hidden');
+                        splitViewBtn.classList.add('bg-blue-100', 'text-blue-800');
+
+                        // Move Layout into Split Container (Simplified: Just clone/render canvas)
+                        // Ideally we should reuse the layout viewer logic, but it's coupled with modal.
+                        // I will render a simplified read-only layout here.
+                        renderSplitLayout(splitContainer);
+                    }
+                });
+            }
+
             if (canEdit) {
                 document.getElementById('edit-brand-btn').addEventListener('click', () => toggleBrandEdit(true));
                 document.getElementById('cancel-brand-btn').addEventListener('click', () => toggleBrandEdit(false));
                 document.getElementById('save-brand-btn').addEventListener('click', handleSaveBrand);
             }
+            fetchAndRenderChecklist(modelInfo.model, 'manual-checklist-container');
             lucide.createIcons();
             ui.processHeaderBlock.style.display = 'block';
         };
@@ -1563,13 +1618,31 @@
             const avgEfficiencyAll = processes.size > 0 ? (totalEfficiency / processes.size) : 0;
             const avgEfficiencyManaged = managedProcessesCount > 0 ? (totalManagedEfficiency / managedProcessesCount) : 0;
 
-            const sectorOverstaffCount = {};
-            overstaffedOps.forEach(op => {
-                const celula = op.modelInfo.celula || 'Não especificado';
-                const excess = (op.assignedOperators.length || 0) - parseInt(op.operatorsReal, 10);
-                sectorOverstaffCount[celula] = (sectorOverstaffCount[celula] || 0) + excess;
+            const efficiencyBySector = {};
+            const peopleBySector = {};
+
+            processes.forEach((processData, modelName) => {
+                // Prefer 'sector' from parser, fallback to 'celula'
+                const firstOp = processData.ops[0];
+                const processSector = (firstOp.modelInfo.sector && firstOp.modelInfo.sector !== 'null') ? firstOp.modelInfo.sector : (processData.celula || 'Outros');
+
+                if (!efficiencyBySector[processSector]) efficiencyBySector[processSector] = { total: 0, count: 0 };
+                if (!peopleBySector[processSector]) peopleBySector[processSector] = 0;
+
+                const metrics = calculateOverallProcessMetrics(processData.ops);
+                if (!isNaN(metrics.efficiencyValue)) {
+                    efficiencyBySector[processSector].total += metrics.efficiencyValue;
+                    efficiencyBySector[processSector].count++;
+                }
+
+                peopleBySector[processSector] += parseInt(firstOp.modelInfo.totalPeople) || 0;
             });
-            const sectorData = Object.entries(sectorOverstaffCount).sort(([, a], [, b]) => b - a).slice(0, 7);
+
+            const sectorEfficiencyLabels = Object.keys(efficiencyBySector);
+            const sectorEfficiencyData = sectorEfficiencyLabels.map(s => (efficiencyBySector[s].total / efficiencyBySector[s].count).toFixed(2));
+
+            const sectorPeopleLabels = Object.keys(peopleBySector);
+            const sectorPeopleData = sectorPeopleLabels.map(s => peopleBySector[s]);
 
             const analystProcessCount = {};
             processes.forEach(process => {
@@ -1623,8 +1696,12 @@
                         <canvas id="efficiency-averages-chart"></canvas>
                     </div>
                      <div class="bg-white p-6 rounded-xl shadow-sm border h-[400px]">
-                        <h3 class="text-xl font-semibold mb-4">Top Setores com Excesso de Pessoal</h3>
+                        <h3 class="text-xl font-semibold mb-4">Média de Eficiência por Setor</h3>
                         <canvas id="overstaffed-by-sector-chart"></canvas>
+                    </div>
+                     <div class="bg-white p-6 rounded-xl shadow-sm border h-[400px]">
+                        <h3 class="text-xl font-semibold mb-4">Total de Pessoas por Setor</h3>
+                        <canvas id="people-by-sector-chart"></canvas>
                     </div>
 
                     <div class="bg-white p-6 rounded-xl shadow-sm border h-[400px] lg:col-span-2">
@@ -1660,12 +1737,32 @@
                 options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, max: 120 } } }
             });
 
-            if (sectorData.length > 0) {
-                chartInstances.sectorOverstaffing = new Chart(document.getElementById('overstaffed-by-sector-chart'), {
-                    type: 'bar', data: { labels: sectorData.map(d => d[0]), datasets: [{ label: 'Operadores em Excesso', data: sectorData.map(d => d[1]), backgroundColor: '#ef4444' }] },
-                    options: { responsive: true, maintainAspectRatio: false, indexAxis: 'y', plugins: { legend: { display: false } } }
+            if (sectorEfficiencyLabels.length > 0) {
+                chartInstances.sectorEfficiency = new Chart(document.getElementById('overstaffed-by-sector-chart'), { // Reusing ID for simplicity
+                    type: 'bar',
+                    data: {
+                        labels: sectorEfficiencyLabels,
+                        datasets: [
+                            { label: 'Eficiência Média (%)', data: sectorEfficiencyData, backgroundColor: '#3b82f6' }
+                        ]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, max: 120 } } }
                 });
             }
+
+            if (sectorPeopleLabels.length > 0) {
+                chartInstances.sectorPeople = new Chart(document.getElementById('people-by-sector-chart'), {
+                    type: 'bar',
+                    data: {
+                        labels: sectorPeopleLabels,
+                        datasets: [
+                            { label: 'Total de Pessoas', data: sectorPeopleData, backgroundColor: '#10b981' }
+                        ]
+                    },
+                    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+                });
+            }
+
 
             if (analystData.length > 0) {
                 chartInstances.topAnalysts = new Chart(document.getElementById('top-analysts-chart'), {
@@ -1720,7 +1817,7 @@
             };
             reader.readAsText(csvFile, 'ISO-8859-1');
         };
-        
+
         // CORRIGIDO: Nova função para carregar processos em cache
         async function ensureProcessesLoaded() {
             const response = await apiRequest(`${API_URL}?action=getOperations`);
@@ -1744,7 +1841,8 @@
                 model: 'N/D',
                 productionGoal: 0,
                 workdayMinutes: 0,
-                totalPeople: 0
+                totalPeople: 0,
+                sector: null
             };
             const operations = [];
 
@@ -1777,6 +1875,7 @@
             modelInfo.model = findValue("Ref./Produto:", firstLine)?.split('/')[1]?.trim() || findValue("Nome Balanc.:", firstLine) || 'Modelo Não Encontrado';
             modelInfo.productionGoal = parseInt(findValue("Meta Prod.:", firstLine) || '0', 10);
             modelInfo.workdayMinutes = parseInt(findValue("Turno:", firstLine) || '0', 10);
+            modelInfo.sector = findValue("Setor:", firstLine);
 
             const totalLine = lines.find(line => line.includes(',"TOTAL",'));
             if (totalLine) {
@@ -1825,7 +1924,7 @@
             if (!modelInfo.totalPeople || modelInfo.totalPeople === 0) {
                 modelInfo.totalPeople = operations.reduce((sum, op) => sum + (parseInt(op.operatorsReal, 10) || 0), 0);
             }
-            
+
             const uniqueOperations = Array.from(new Map(operations.map(op => [op.sequence, op])).values());
             return { modelInfo, operations: uniqueOperations };
         };
@@ -1977,6 +2076,70 @@
         };
 
         const calculateEfficiency = (operation) => {
+
+        const fetchAndRenderChecklist = async (modelName, containerId) => {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+
+            container.innerHTML = '<div class="loader !w-4 !h-4"></div>';
+
+            const response = await apiRequest(`${API_URL}?action=getProcessMetadata&modelName=${encodeURIComponent(modelName)}`);
+
+            if (response.status === 'success') {
+                const checklistItems = response.data.checklist || [];
+                // Standard items
+                const standardItems = [
+                    { key: 'tempos', label: 'Validação de Tempos' },
+                    { key: 'layout', label: 'Validação de Layout' },
+                    { key: 'aprovacao', label: 'Aprovação da Gerência' }
+                ];
+
+                let html = '<h5 class="text-sm font-bold text-slate-700 mb-2 mt-2 pt-2 border-t">Validação Manual</h5>';
+
+                standardItems.forEach(item => {
+                    const isChecked = checklistItems.find(c => c.item_key === item.key && (parseInt(c.is_checked) === 1 || c.is_checked === true));
+                    html += `
+                        <label class="flex items-center gap-2 text-sm cursor-pointer hover:bg-slate-50 p-1 rounded">
+                            <input type="checkbox" class="checklist-checkbox form-checkbox h-4 w-4 text-red-600 rounded"
+                                data-model="${modelName}" data-key="${item.key}" ${isChecked ? 'checked' : ''}>
+                            <span class="${isChecked ? 'text-slate-800 font-medium' : 'text-slate-600'}">${item.label}</span>
+                        </label>
+                    `;
+                });
+
+                container.innerHTML = html;
+
+                // Add listeners
+                container.querySelectorAll('.checklist-checkbox').forEach(cb => {
+                    cb.addEventListener('change', async (e) => {
+                        const key = e.target.dataset.key;
+                        const checked = e.target.checked;
+
+                        // Style update
+                        const span = e.target.nextElementSibling;
+                        if(checked) {
+                            span.classList.remove('text-slate-600');
+                            span.classList.add('text-slate-800', 'font-medium');
+                        } else {
+                            span.classList.add('text-slate-600');
+                            span.classList.remove('text-slate-800', 'font-medium');
+                        }
+
+                        // Save
+                        await apiRequest(API_URL, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                action: 'saveChecklist',
+                                modelName: modelName,
+                                items: [{ key: key, checked: checked }]
+                            })
+                        });
+                    });
+                });
+            }
+        };
+
             const timeSeconds = parseFloat(String(operation.timeSeconds).replace(',', '.'));
             const goal = parseInt(operation.modelInfo.productionGoal, 10);
             const workday = parseInt(operation.modelInfo.workdayMinutes, 10);
@@ -2153,9 +2316,26 @@
                 return;
             }
 
+            // Fetch metadata
+            const metadataResponse = await apiRequest(`${API_URL}?action=getProcessMetadata&modelName=${encodeURIComponent(currentProcessModelName)}`);
+            let savedRotation = 0;
+
+            if (metadataResponse.status === 'success') {
+                if (metadataResponse.data.settings) {
+                    savedRotation = parseInt(metadataResponse.data.settings.layout_rotation) || 0;
+                }
+                if (metadataResponse.data.connections) {
+                    manualConnections = metadataResponse.data.connections.map(c => ({from: c.from_op_id, to: c.to_op_id}));
+                } else {
+                    manualConnections = [];
+                }
+            } else {
+                manualConnections = [];
+            }
+
             layoutEditorOps = JSON.parse(JSON.stringify(lastProcessedOperations));
             layoutHasChanges = false;
-            currentRotation = 0;
+            currentRotation = savedRotation;
 
             ui.layoutModalTitle.textContent = `Layout da Célula: ${currentProcessModelName}`;
             showModal('layoutModal');
@@ -2283,21 +2463,53 @@
              const svg = document.getElementById('flow-line-svg');
             const markerContainer = ui.markerContainer;
             if (!svg || !markerContainer) return;
-            svg.innerHTML = '';
+            svg.innerHTML = `
+                <defs>
+                    <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="28" refY="3.5" orient="auto">
+                        <polygon points="0 0, 10 3.5, 0 7" fill="#6366f1" />
+                    </marker>
+                </defs>
+            `;
             if (showHeatmap || !ui.showFlowToggle.checked) return;
 
-            const placedOps = layoutEditorOps
-                .filter(op => op.layoutPosition && typeof op.layoutPosition.x === 'number' && typeof op.layoutPosition.y === 'number')
-                .sort((a, b) => parseInt(a.sequence) - parseInt(b.sequence));
-
-            if (placedOps.length < 2) return;
             const containerWidth = markerContainer.clientWidth;
             const containerHeight = markerContainer.clientHeight;
-            const points = placedOps.map(op => `${op.layoutPosition.x * containerWidth},${op.layoutPosition.y * containerHeight}`).join(' ');
-            const polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-            polyline.setAttribute('points', points);
-            polyline.setAttribute('class', 'flow-line');
-            svg.appendChild(polyline);
+
+            if (manualConnections.length > 0) {
+                 manualConnections.forEach(conn => {
+                     const fromOp = layoutEditorOps.find(op => op.operationId === conn.from);
+                     const toOp = layoutEditorOps.find(op => op.operationId === conn.to);
+
+                     if (fromOp && toOp && fromOp.layoutPosition && toOp.layoutPosition) {
+                         const x1 = fromOp.layoutPosition.x * containerWidth;
+                         const y1 = fromOp.layoutPosition.y * containerHeight;
+                         const x2 = toOp.layoutPosition.x * containerWidth;
+                         const y2 = toOp.layoutPosition.y * containerHeight;
+
+                         const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                         line.setAttribute('x1', x1);
+                         line.setAttribute('y1', y1);
+                         line.setAttribute('x2', x2);
+                         line.setAttribute('y2', y2);
+                         line.setAttribute('stroke', '#6366f1');
+                         line.setAttribute('stroke-width', '2');
+                         line.setAttribute('marker-end', 'url(#arrowhead)');
+                         svg.appendChild(line);
+                     }
+                 });
+            } else {
+                // Sequential fallback
+                const placedOps = layoutEditorOps
+                    .filter(op => op.layoutPosition && typeof op.layoutPosition.x === 'number' && typeof op.layoutPosition.y === 'number')
+                    .sort((a, b) => parseInt(a.sequence) - parseInt(b.sequence));
+
+                if (placedOps.length < 2) return;
+                const points = placedOps.map(op => `${op.layoutPosition.x * containerWidth},${op.layoutPosition.y * containerHeight}`).join(' ');
+                const polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+                polyline.setAttribute('points', points);
+                polyline.setAttribute('class', 'flow-line');
+                svg.appendChild(polyline);
+            }
         };
 
         const renderUnplacedOperationsList = () => {
@@ -2359,6 +2571,19 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ action: 'saveLayoutPositions', operations: opsToSave })
             });
+
+            // Save Connections
+            if (manualConnections.length > 0) {
+                await apiRequest(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        action: 'saveConnections',
+                        modelName: currentProcessModelName,
+                        connections: manualConnections
+                    })
+                });
+            }
 
             ui.saveLayoutBtn.innerHTML = '<i data-lucide="save" class="w-4 h-4"></i> Salvar';
             ui.saveLayoutBtn.disabled = false;
@@ -3052,10 +3277,22 @@
             });
 
             ui.saveLayoutBtn?.addEventListener('click', handleSaveLayout);
-            ui.rotateLayoutBtn?.addEventListener('click', () => {
+            ui.rotateLayoutBtn?.addEventListener('click', async () => {
                 currentRotation = (currentRotation + 90) % 360;
                 if(currentLayoutUrl) {
                     renderLayout(currentLayoutUrl);
+                    // Save rotation
+                    const sector = lastProcessedOperations[0]?.modelInfo?.sector;
+                    await apiRequest(API_URL, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            action: 'saveLayoutSettings',
+                            modelName: currentProcessModelName,
+                            rotation: currentRotation,
+                            sector: sector
+                        })
+                    });
                 }
             });
 
@@ -3081,10 +3318,35 @@
             ui.removeAllMarkersBtn?.addEventListener('click', handleRemoveAllMarkers);
 
             ui.markerContainer.addEventListener('click', (e) => {
+                // Handle Remove
                 if (e.target.closest('.remove-marker-btn')) {
                     const marker = e.target.closest('.op-marker');
                     if (marker && marker.dataset.opId) {
                         handleRemoveMarker(marker.dataset.opId);
+                    }
+                    return;
+                }
+
+                // Handle Connection
+                const marker = e.target.closest('.op-marker');
+                const connectionModeToggle = document.getElementById('connection-mode-toggle');
+                if (connectionModeToggle && connectionModeToggle.checked && marker) {
+                    const opId = marker.dataset.opId;
+                    if (connectionStartOpId === null) {
+                        connectionStartOpId = opId;
+                        marker.style.border = '2px solid yellow'; // Visual feedback
+                        showCustomAlert("Selecione o destino da conexão.", "Iniciando Conexão");
+                    } else {
+                        if (connectionStartOpId !== opId) {
+                            manualConnections.push({ from: connectionStartOpId, to: opId });
+                            layoutHasChanges = true;
+                            renderFlowLines(ui.showHeatmapToggle.checked);
+                            connectionStartOpId = null;
+                            renderMarkers(ui.showHeatmapToggle.checked); // Reset styles
+                        } else {
+                            connectionStartOpId = null;
+                            renderMarkers(ui.showHeatmapToggle.checked); // Cancel
+                        }
                     }
                 }
             });
@@ -3118,6 +3380,91 @@
                     renderOperationsList(lastProcessedOperations);
                 }
             });
+        };
+
+        const renderSplitLayout = async (container) => {
+            container.innerHTML = '<div class="loader m-auto"></div>';
+            if (!currentProcessModelName) return;
+
+            // Metadata is already loaded in lastProcessedOperations? No, need to fetch for rotation/connections
+            const metadataResponse = await apiRequest(`${API_URL}?action=getProcessMetadata&modelName=${encodeURIComponent(currentProcessModelName)}`);
+            let savedRotation = 0;
+            if (metadataResponse.status === 'success' && metadataResponse.data.settings) {
+                savedRotation = parseInt(metadataResponse.data.settings.layout_rotation) || 0;
+            }
+            if (metadataResponse.status === 'success' && metadataResponse.data.connections) {
+                manualConnections = metadataResponse.data.connections.map(c => ({from: c.from_op_id, to: c.to_op_id}));
+            }
+
+            const sanitizedModelName = getSanitizedModelName(currentProcessModelName);
+            const url = `layouts/${sanitizedModelName}.pdf`;
+
+            try {
+                const checkFile = await fetch(url, { method: 'HEAD' });
+                if (!checkFile.ok) {
+                    container.innerHTML = '<p class="text-slate-500 m-auto">Layout não disponível</p>';
+                    return;
+                }
+
+                container.innerHTML = '<div style="position: relative; width: 100%; height: 100%; overflow: auto;"><canvas id="split-canvas"></canvas><div id="split-markers" style="position: absolute; inset: 0;"><svg id="split-flow-svg" width="100%" height="100%" style="position: absolute; top: 0; left: 0; pointer-events: none;"></svg></div></div>';
+
+                const canvas = container.querySelector('#split-canvas');
+                const ctx = canvas.getContext('2d');
+
+                const loadingTask = pdfjsLib.getDocument(url);
+                const pdf = await loadingTask.promise;
+                const page = await pdf.getPage(1);
+
+                // Fit to container width
+                const viewportRotated = page.getViewport({ scale: 1.0, rotation: savedRotation });
+                const scale = container.clientWidth / viewportRotated.width;
+                const viewport = page.getViewport({ scale: scale, rotation: savedRotation });
+
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+
+                await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+
+                // Render Markers
+                const markerContainer = container.querySelector('#split-markers');
+                layoutEditorOps.forEach(op => {
+                    if (op.layoutPosition) {
+                        const marker = document.createElement('div');
+                        marker.className = 'op-marker';
+                        marker.style.left = `${op.layoutPosition.x * 100}%`;
+                        marker.style.top = `${op.layoutPosition.y * 100}%`;
+                        marker.innerText = op.sequence;
+                        marker.style.transform = 'translate(-50%, -50%) scale(0.8)'; // Smaller
+                        markerContainer.appendChild(marker);
+                    }
+                });
+
+                // Render Flow Lines (Simplified manual only)
+                const svg = container.querySelector('#split-flow-svg');
+                svg.innerHTML = `<defs><marker id="arrowhead-split" markerWidth="10" markerHeight="7" refX="28" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#6366f1" /></marker></defs>`;
+
+                const w = markerContainer.clientWidth;
+                const h = markerContainer.clientHeight;
+
+                manualConnections.forEach(conn => {
+                     const fromOp = layoutEditorOps.find(op => op.operationId === conn.from);
+                     const toOp = layoutEditorOps.find(op => op.operationId === conn.to);
+                     if (fromOp && toOp && fromOp.layoutPosition && toOp.layoutPosition) {
+                         const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+                         line.setAttribute('x1', fromOp.layoutPosition.x * w);
+                         line.setAttribute('y1', fromOp.layoutPosition.y * h);
+                         line.setAttribute('x2', toOp.layoutPosition.x * w);
+                         line.setAttribute('y2', toOp.layoutPosition.y * h);
+                         line.setAttribute('stroke', '#6366f1');
+                         line.setAttribute('stroke-width', '2');
+                         line.setAttribute('marker-end', 'url(#arrowhead-split)');
+                         svg.appendChild(line);
+                     }
+                });
+
+            } catch (e) {
+                container.innerHTML = `<p class="text-red-500 m-auto">Erro: ${e.message}</p>`;
+            }
         };
 
         // --- Ponto de Entrada da Aplicação ---

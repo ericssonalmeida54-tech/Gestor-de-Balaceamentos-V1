@@ -92,6 +92,22 @@ switch ($action) {
         if (isset($data['operations']) && !empty($data['operations'])) {
             $conn->begin_transaction();
             try {
+                // Salva configurações do modelo (Setor)
+                if (isset($data['operations'][0]['modelInfo']['model'])) {
+                    $firstOp = $data['operations'][0];
+                    $modelName = $firstOp['modelInfo']['model'];
+                    $sector = $firstOp['modelInfo']['sector'] ?? null;
+
+                    $settingsSql = "INSERT INTO model_settings (model_name, sector) VALUES (?, ?)
+                                    ON DUPLICATE KEY UPDATE sector = VALUES(sector)";
+                    $settingsStmt = $conn->prepare($settingsSql);
+                    if ($settingsStmt) {
+                        $settingsStmt->bind_param("ss", $modelName, $sector);
+                        $settingsStmt->execute();
+                        $settingsStmt->close();
+                    }
+                }
+
                 // Prepara a inserção
                 $sql = "INSERT INTO operations (operationId, model, sequence, description, machine, timeCentesimal, timeSeconds, operatorsReal, agrup, status, observation, assignedOperators, layoutPosition, modelInfo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
                 $stmt = $conn->prepare($sql);
@@ -483,6 +499,158 @@ switch ($action) {
             }
         } else {
              $response['message'] = 'ID do usuário ausente para exclusão.';
+        }
+        break;
+
+    case 'saveLayoutSettings':
+        if (isset($data['modelName'])) {
+            $modelName = $data['modelName'];
+            $rotation = isset($data['rotation']) ? intval($data['rotation']) : 0;
+            $sector = isset($data['sector']) ? $data['sector'] : null;
+
+            $sql = "INSERT INTO model_settings (model_name, layout_rotation, sector) VALUES (?, ?, ?)
+                    ON DUPLICATE KEY UPDATE layout_rotation = VALUES(layout_rotation), sector = VALUES(sector)";
+            $stmt = $conn->prepare($sql);
+            if ($stmt) {
+                $stmt->bind_param("sis", $modelName, $rotation, $sector);
+                if ($stmt->execute()) {
+                    $response = ['status' => 'success'];
+                } else {
+                    $response['message'] = "Erro SQL ao salvar configurações: " . $stmt->error;
+                    error_log("SaveLayoutSettings execute failed: (" . $stmt->errno . ") " . $stmt->error);
+                }
+                $stmt->close();
+            } else {
+                 $response['message'] = 'Erro ao preparar salvamento de configurações.';
+                 error_log("SaveLayoutSettings prepare failed: " . $conn->error);
+            }
+        } else {
+            $response['message'] = 'Nome do modelo ausente.';
+        }
+        break;
+
+    case 'saveChecklist':
+        if (isset($data['modelName'], $data['items']) && is_array($data['items'])) {
+            $modelName = $data['modelName'];
+            $conn->begin_transaction();
+            try {
+                $sql = "INSERT INTO checklist_items (model_name, item_key, is_checked) VALUES (?, ?, ?)
+                        ON DUPLICATE KEY UPDATE is_checked = VALUES(is_checked)";
+                $stmt = $conn->prepare($sql);
+                if (!$stmt) throw new Exception("Erro ao preparar checklist update: " . $conn->error);
+
+                $itemKey = "";
+                $itemChecked = 0;
+                $stmt->bind_param("ssi", $modelName, $itemKey, $itemChecked);
+
+                foreach ($data['items'] as $item) {
+                    $itemKey = $item['key'];
+                    $itemChecked = $item['checked'] ? 1 : 0;
+                    if (!$stmt->execute()) throw new Exception("Erro ao executar checklist update: " . $stmt->error);
+                }
+                $stmt->close();
+                $conn->commit();
+                $response = ['status' => 'success'];
+            } catch (Exception $e) {
+                $conn->rollback();
+                $response['message'] = 'Erro ao salvar checklist: ' . $e->getMessage();
+                error_log("SaveChecklist Error: " . $e->getMessage());
+            }
+        } else {
+            $response['message'] = 'Dados de checklist inválidos.';
+        }
+        break;
+
+    case 'saveConnections':
+        if (isset($data['modelName'], $data['connections']) && is_array($data['connections'])) {
+            $modelName = $data['modelName'];
+            $conn->begin_transaction();
+            try {
+                // Remove conexões existentes para este modelo
+                $delSql = "DELETE FROM layout_connections WHERE model_name = ?";
+                $delStmt = $conn->prepare($delSql);
+                $delStmt->bind_param("s", $modelName);
+                $delStmt->execute();
+                $delStmt->close();
+
+                // Insere novas conexões
+                $insSql = "INSERT INTO layout_connections (model_name, from_op_id, to_op_id) VALUES (?, ?, ?)";
+                $insStmt = $conn->prepare($insSql);
+                if (!$insStmt) throw new Exception("Erro ao preparar inserção de conexões: " . $conn->error);
+
+                $from = "";
+                $to = "";
+                $insStmt->bind_param("sss", $modelName, $from, $to);
+
+                foreach ($data['connections'] as $connItem) {
+                    $from = $connItem['from'];
+                    $to = $connItem['to'];
+                    if (!$insStmt->execute()) throw new Exception("Erro ao inserir conexão: " . $insStmt->error);
+                }
+                $insStmt->close();
+                $conn->commit();
+                $response = ['status' => 'success'];
+            } catch (Exception $e) {
+                $conn->rollback();
+                $response['message'] = 'Erro ao salvar conexões: ' . $e->getMessage();
+                error_log("SaveConnections Error: " . $e->getMessage());
+            }
+        } else {
+            $response['message'] = 'Dados de conexões inválidos.';
+        }
+        break;
+
+    case 'getProcessMetadata':
+        if (isset($_GET['modelName'])) {
+            $modelName = $_GET['modelName'];
+            $metadata = [
+                'settings' => null,
+                'checklist' => [],
+                'connections' => []
+            ];
+
+            // Settings (Rotation, Sector)
+            $settingsSql = "SELECT * FROM model_settings WHERE model_name = ?";
+            $stmt = $conn->prepare($settingsSql);
+            if ($stmt) {
+                $stmt->bind_param("s", $modelName);
+                $stmt->execute();
+                $result = $stmt->get_result();
+                if ($row = $result->fetch_assoc()) {
+                    $metadata['settings'] = $row;
+                }
+                $stmt->close();
+            }
+
+            // Checklist
+            $checkSql = "SELECT item_key, is_checked FROM checklist_items WHERE model_name = ?";
+            $stmt = $conn->prepare($checkSql);
+            if ($stmt) {
+                $stmt->bind_param("s", $modelName);
+                $stmt->execute();
+                $result = $stmt->get_result();
+                while ($row = $result->fetch_assoc()) {
+                    $metadata['checklist'][] = $row;
+                }
+                $stmt->close();
+            }
+
+            // Connections
+            $connSql = "SELECT from_op_id, to_op_id FROM layout_connections WHERE model_name = ?";
+            $stmt = $conn->prepare($connSql);
+            if ($stmt) {
+                $stmt->bind_param("s", $modelName);
+                $stmt->execute();
+                $result = $stmt->get_result();
+                while ($row = $result->fetch_assoc()) {
+                    $metadata['connections'][] = $row;
+                }
+                $stmt->close();
+            }
+
+            $response = ['status' => 'success', 'data' => $metadata];
+        } else {
+            $response['message'] = 'Nome do modelo ausente.';
         }
         break;
 
