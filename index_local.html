@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestor de Balanceamentos - DASS (Standalone)</title>
+    <title>Gestor de Balanceamentos - DASS (Local)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/2.11.338/pdf.min.js"></script>
     <script>
@@ -157,7 +157,22 @@
         </div>
     </div>
 
-    <div id="app-container" class="flex h-screen overflow-hidden">
+
+    <div id="justification-modal" class="fixed inset-0 z-50 hidden items-center justify-center p-4 modal-backdrop">
+        <div class="bg-white w-full max-w-md p-6 rounded-2xl shadow-lg">
+            <h3 class="text-lg font-bold">Justificar Status do Operador</h3>
+            <p class="mt-2 text-sm text-slate-600">Informe o motivo da ociosidade ou situação atual deste operador (ex: Férias, Treinamento, Atestado).</p>
+            <div class="mt-4">
+                <textarea id="justification-input" class="w-full mt-2 p-2 border border-slate-300 rounded-md h-24 focus:ring-2 focus:ring-red-500" placeholder="Digite a justificativa..."></textarea>
+            </div>
+            <div class="mt-6 flex justify-end gap-3">
+                <button id="cancel-justification-btn" class="px-4 py-2 bg-slate-200 text-slate-800 rounded-lg hover:bg-slate-300">Cancelar</button>
+                <button id="confirm-justification-btn" class="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">Salvar</button>
+            </div>
+        </div>
+    </div>
+
+<div id="app-container" class="flex h-screen overflow-hidden">
         <aside id="sidebar" class="w-64 bg-gray-900 text-white flex-col p-4 flex absolute inset-y-0 left-0 transform -translate-x-full md:relative md:translate-x-0 transition-transform duration-300 ease-in-out z-30">
             <div class="flex items-center justify-center gap-3 text-center py-4 border-b border-gray-700">
                 <svg xmlns="http://www.w3.org/2000/svg" width="200" height="50" viewBox="0 0 200 50">
@@ -169,6 +184,7 @@
                 <button id="nav-home" class="nav-link w-full text-left flex items-center gap-3 font-semibold py-3 px-4 rounded-lg active"><i data-lucide="layout-dashboard" class="w-5 h-5"></i>Painel</button>
                 <button id="nav-analytics" class="nav-link w-full text-left flex items-center gap-3 font-semibold py-3 px-4 rounded-lg"><i data-lucide="pie-chart" class="w-5 h-5"></i>Análises</button>
                 <button id="nav-processes" class="nav-link w-full text-left flex items-center gap-3 font-semibold py-3 px-4 rounded-lg"><i data-lucide="folder-kanban" class="w-5 h-5"></i>Balanceamentos</button>
+                <button id="nav-operators" class="nav-link w-full text-left flex items-center gap-3 font-semibold py-3 px-4 rounded-lg"><i data-lucide="users" class="w-5 h-5"></i>Operadores</button>
                 <button id="nav-admin" class="nav-link w-full text-left flex items-center gap-3 font-semibold py-3 px-4 rounded-lg"><i data-lucide="shield-check" class="w-5 h-5"></i>Administrador</button>
             </nav>
             <div id="user-session" class="mt-auto border-t border-gray-700 pt-4">
@@ -304,7 +320,31 @@
                     <div id="no-processes-message" class="hidden text-center text-slate-500 mt-10 p-4"><i data-lucide="folder-x" class="mx-auto h-16 w-16 mb-4 stroke-1"></i><h3 class="text-lg font-medium">Nenhum balanceamento encontrado.</h3><p>Carregue um arquivo na página inicial para começar.</p></div>
                 </div>
 
-                <div id="page-admin" class="hidden">
+
+                <div id="page-operators" class="hidden">
+                    <h2 class="text-2xl sm:text-3xl font-bold mb-6">Lista de Operadores</h2>
+                    <div class="mb-6">
+                        <input type="text" id="operators-search-input" placeholder="Buscar por nome ou crachá..." class="w-full p-3 border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-500">
+                    </div>
+                    <div class="bg-white rounded-xl shadow-sm border overflow-hidden">
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full">
+                                <thead class="bg-slate-50">
+                                    <tr>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Crachá</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Nome</th>
+                                        <th class="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Status</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Justificativa</th>
+                                        <th class="px-6 py-3 text-center text-xs font-medium text-slate-500 uppercase tracking-wider">Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="operators-table-body" class="bg-white divide-y divide-slate-200"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+<div id="page-admin" class="hidden">
                     <h2 class="text-2xl sm:text-3xl font-bold mb-6">Administração de Usuários</h2>
                     <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
                         <div class="lg:col-span-1">
@@ -576,231 +616,501 @@
 
     <script>
         // =========================================================================================
+        // ||||||||||||||||||||||||||| LOCALHOST ONLY LOGIC |||||||||||||||||||||||||||||||||||||||
+        // =========================================================================================
+
+        class LocalDB {
+            constructor() { this.init(); }
+            init() {
+                if (!localStorage.getItem('db_users')) {
+                    localStorage.setItem('db_users', JSON.stringify([
+                        { id: 1, name: 'Administrador', username: 'admin', password: '123', role: 'admin' },
+                        { id: 2, name: 'Gerente', username: 'gerente', password: '123', role: 'gerente' },
+                        { id: 3, name: 'Liderança', username: 'lider', password: '123', role: 'lideranca' },
+                        { id: 4, name: 'Analista', username: 'analista', password: '123', role: 'analista' }
+                    ]));
+                }
+                if (!localStorage.getItem('db_operations')) localStorage.setItem('db_operations', JSON.stringify([]));
+                if (!localStorage.getItem('db_operators')) {
+                    const ops = [];
+                    for (let i = 1; i <= 20; i++) ops.push({ id: i, name: `Operador ${i}`, badgeId: `${1000+i}`, justification: '' });
+                    localStorage.setItem('db_operators', JSON.stringify(ops));
+                }
+                if (!localStorage.getItem('db_layouts')) localStorage.setItem('db_layouts', JSON.stringify({}));
+            }
+            getUsers() { return JSON.parse(localStorage.getItem('db_users') || '[]'); }
+            getOperations() { return JSON.parse(localStorage.getItem('db_operations') || '[]'); }
+            getOperators() { return JSON.parse(localStorage.getItem('db_operators') || '[]'); }
+            saveUsers(users) { localStorage.setItem('db_users', JSON.stringify(users)); }
+            saveOperations(ops) { localStorage.setItem('db_operations', JSON.stringify(ops)); }
+            saveOperators(ops) { localStorage.setItem('db_operators', JSON.stringify(ops)); }
+            login(username, password) {
+                const user = this.getUsers().find(u => u.username === username && u.password === password);
+                return user ? { status: 'success', user } : { status: 'error', message: 'Credenciais inválidas' };
+            }
+            saveProcess(newOps) {
+                const current = this.getOperations();
+                const updated = [...current, ...newOps];
+                this.saveOperations(updated);
+                return { status: 'success' };
+            }
+            updateOperation(opId, field, value) {
+                const ops = this.getOperations();
+                const opIndex = ops.findIndex(o => o.operationId === opId);
+                if (opIndex === -1) return { status: 'error', message: 'Operação não encontrada' };
+                ops[opIndex][field] = value;
+                if (ops[opIndex].isGrouped && ops[opIndex].originalOps) ops[opIndex].originalOps.forEach(sub => sub[field] = value);
+                this.saveOperations(ops);
+                return { status: 'success' };
+            }
+            updateModelInfoField(modelName, field, value) {
+                const ops = this.getOperations();
+                let updated = false;
+                ops.forEach(op => {
+                    if (op.modelInfo.model === modelName) {
+                        op.modelInfo[field] = value;
+                        updated = true;
+                    }
+                });
+                if (updated) { this.saveOperations(ops); return { status: 'success' }; }
+                return { status: 'error', message: 'Modelo não encontrado' };
+            }
+            updateProcessStatus(modelName, status) {
+                const ops = this.getOperations();
+                let updated = false;
+                ops.forEach(op => { if (op.modelInfo.model === modelName) { op.status = status; updated = true; } });
+                if(updated) this.saveOperations(ops);
+                return { status: 'success' };
+            }
+            deleteProcess(modelName) {
+                 const ops = this.getOperations();
+                 const newOps = ops.filter(op => op.modelInfo.model !== modelName);
+                 this.saveOperations(newOps);
+                 return { status: 'success' };
+            }
+            updateOperator(badgeId, field, value) {
+                const operators = this.getOperators();
+                const opIndex = operators.findIndex(o => o.badgeId === badgeId);
+                if (opIndex === -1) return { status: 'error', message: 'Operador não encontrado' };
+                operators[opIndex][field] = value;
+                this.saveOperators(operators);
+                return { status: 'success' };
+            }
+            saveLayoutPositions(operationsToUpdate) {
+                const ops = this.getOperations();
+                let count = 0;
+                operationsToUpdate.forEach(upd => {
+                    const op = ops.find(o => o.operationId === upd.operationId);
+                    if (op) { op.layoutPosition = upd.layoutPosition; count++; }
+                });
+                this.saveOperations(ops);
+                return { status: 'success', updated: count };
+            }
+            createUser(name, username, password, role) {
+                const users = this.getUsers();
+                if (users.find(u => u.username === username)) return { status: 'error', message: 'Usuário já existe' };
+                const newId = users.length > 0 ? Math.max(...users.map(u => u.id)) + 1 : 1;
+                users.push({ id: newId, name, username, password, role });
+                this.saveUsers(users);
+                return { status: 'success' };
+            }
+            updateUser(id, name, role) {
+                const users = this.getUsers();
+                const idx = users.findIndex(u => u.id === parseInt(id));
+                if (idx === -1) return { status: 'error', message: 'Usuário não encontrado' };
+                users[idx].name = name;
+                users[idx].role = role;
+                this.saveUsers(users);
+                return { status: 'success' };
+            }
+            deleteUser(id) {
+                const users = this.getUsers();
+                const newUsers = users.filter(u => u.id !== parseInt(id));
+                this.saveUsers(newUsers);
+                return { status: 'success' };
+            }
+        }
+
+        const localDB = new LocalDB();
+
+        async function apiRequest(url, options = {}) {
+            let action = '';
+            let params = {};
+            if (url.includes('?')) {
+                const urlParams = new URLSearchParams(url.split('?')[1]);
+                action = urlParams.get('action');
+                for (const [key, value] of urlParams) { params[key] = value; }
+            }
+            if (options.body) {
+                try {
+                    const body = (typeof options.body === 'string') ? JSON.parse(options.body) : options.body;
+                    if (body.action) action = body.action;
+                    params = { ...params, ...body };
+                } catch(e) { console.error("Parse error", e); }
+            }
+            // console.log(`[LocalAPI] Action: ${action}`, params);
+            await new Promise(r => setTimeout(r, 100));
+            try {
+                switch (action) {
+                    case 'login': return localDB.login(params.username, params.password);
+                    case 'getOperations':
+                        let ops = localDB.getOperations();
+                        if (params.modelName) ops = ops.filter(o => o.modelInfo.model === params.modelName);
+                        if (params.badgeId) ops = ops.filter(o => o.assignedOperators && o.assignedOperators.some(ao => ao.badgeId === params.badgeId));
+                        if (params.status && params.status !== 'all') ops = ops.filter(o => o.status === params.status);
+                        return { status: 'success', data: ops };
+                    case 'saveProcess': return localDB.saveProcess(params.operations);
+                    case 'updateOperation': return localDB.updateOperation(params.opId, params.field, params.value);
+                    case 'updateModelInfoField': return localDB.updateModelInfoField(params.modelName, params.field, params.value);
+                    case 'updateProcessStatus': return localDB.updateProcessStatus(params.modelName, params.status);
+                    case 'deleteProcess': return localDB.deleteProcess(params.modelName);
+                    case 'getOperators':
+                        let operators = localDB.getOperators();
+                        if (params.badgeId) operators = operators.filter(o => o.badgeId === params.badgeId);
+                        return { status: 'success', data: operators };
+                    case 'updateOperator': return localDB.updateOperator(params.badgeId, params.field, params.value);
+                    case 'getUsers': return { status: 'success', data: localDB.getUsers() };
+                    case 'createUser': return localDB.createUser(params.name, params.username, params.password, params.role);
+                    case 'updateUser': return localDB.updateUser(params.id, params.name, params.role);
+                    case 'deleteUser': return localDB.deleteUser(params.id);
+                    case 'saveLayoutPositions': return localDB.saveLayoutPositions(params.operations);
+                    case 'updateBrand': return localDB.updateModelInfoField(params.modelName, 'brand', params.brand);
+                    default: return { status: 'error', message: 'Action not implemented' };
+                }
+            } catch (e) { return { status: 'error', message: e.message }; }
+        }
+
+        async function renderOperatorsPage() {
+            ui.operatorsTableBody.innerHTML = '<tr><td colspan="5" class="text-center p-4"><div class="loader mx-auto"></div></td></tr>';
+            const opsResponse = await apiRequest(`${API_URL}?action=getOperators`);
+            const allOperators = opsResponse.data;
+            const processResponse = await apiRequest(`${API_URL}?action=getOperations`);
+            const allProcesses = processResponse.data;
+            const activeBadgeIds = new Set();
+            allProcesses.forEach(op => {
+                if (op.assignedOperators) op.assignedOperators.forEach(ao => activeBadgeIds.add(ao.badgeId));
+            });
+            ui.operatorsTableBody.innerHTML = '';
+            const searchTerm = ui.operatorsSearchInput.value.toLowerCase();
+            const filteredOps = allOperators.filter(op => op.name.toLowerCase().includes(searchTerm) || op.badgeId.includes(searchTerm));
+            filteredOps.forEach(op => {
+                const isActive = activeBadgeIds.has(op.badgeId);
+                const hasJustification = op.justification && op.justification.trim() !== '';
+                let statusHtml = '';
+                if (isActive) statusHtml = '<span class="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-bold">Em Processo</span>';
+                else if (hasJustification) statusHtml = '<span class="px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs font-bold">Justificado</span>';
+                else statusHtml = '<span class="px-2 py-1 bg-red-100 text-red-800 rounded-full text-xs font-bold">Ocioso</span>';
+                const canEdit = currentUser && ['admin', 'gerente', 'analista', 'lideranca'].includes(currentUser.role);
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-slate-50';
+                row.innerHTML = `
+                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${op.badgeId}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${op.name}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-center">${statusHtml}</td>
+                    <td class="px-6 py-4 text-sm text-gray-500 max-w-xs truncate" title="${op.justification || ''}">${op.justification || '-'}</td>
+                    <td class="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
+                        ${canEdit ? `<button class="text-indigo-600 hover:text-indigo-900 justify-btn" data-badge="${op.badgeId}" data-justification="${op.justification || ''}">Justificar</button>` : '-'}
+                    </td>`;
+                ui.operatorsTableBody.appendChild(row);
+            });
+            document.querySelectorAll('.justify-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => { openJustificationModal(e.target.dataset.badge, e.target.dataset.justification); });
+            });
+            lucide.createIcons();
+        }
+
+        let justificationBadgeId = null;
+        function openJustificationModal(badgeId, currentReason) {
+            justificationBadgeId = badgeId;
+            ui.justificationInput.value = currentReason;
+            showModal('justificationModal');
+        }
+
+        async function saveJustification() {
+            const reason = ui.justificationInput.value;
+            const response = await apiRequest(API_URL, { method: 'POST', body: JSON.stringify({ action: 'updateOperator', badgeId: justificationBadgeId, field: 'justification', value: reason }) });
+            if(response.status === 'success') {
+                showModal('justificationModal', false);
+                renderOperatorsPage();
+                showCustomAlert("Justificativa salva com sucesso!", "Sucesso");
+            } else { showCustomAlert("Erro ao salvar: " + response.message); }
+        }
+
+        const showPage = (pageId) => {
+            ['pageHome', 'pageProcesses', 'pageAdmin', 'pageAnalytics', 'pageOperators'].forEach(p => ui[p] && (ui[p].style.display = 'none'));
+            document.querySelectorAll('#main-nav .nav-link').forEach(n => n.classList.remove('active'));
+            if (ui[pageId]) ui[pageId].style.display = 'block';
+            const navId = pageId.replace('page', 'nav');
+            if (ui[navId]) ui[navId].classList.add('active');
+            if (pageId !== 'pageHome') showHomeState('welcome');
+            if (pageId === 'pageHome') fetchAndRenderDashboard();
+            if (pageId === 'pageProcesses') renderProcessesPage();
+            if (pageId === 'pageAdmin') renderAdminPage();
+            if (pageId === 'pageAnalytics') renderAnalyticsPage();
+            if (pageId === 'pageOperators') renderOperatorsPage();
+            if (ui.sidebar) ui.sidebar.classList.add('-translate-x-full');
+        };
+
+        const updateUIForPermissions = () => {
+            const role = currentUser?.role || 'publico';
+            const can = (allowedRoles) => allowedRoles.includes(role);
+            ui.navAdmin.style.display = can(['admin']) ? 'flex' : 'none';
+            ui.navAnalytics.style.display = can(['admin', 'gerente']) ? 'flex' : 'none';
+            ui.navProcesses.style.display = can(['admin', 'gerente', 'analista', 'lideranca']) ? 'flex' : 'none';
+            ui.navOperators.style.display = can(['admin', 'gerente', 'analista', 'lideranca']) ? 'flex' : 'none';
+            ui.adminSection.style.display = can(['admin', 'gerente', 'analista']) ? 'block' : 'none';
+            if (ui.approveProcessBtn) ui.approveProcessBtn.style.display = can(['admin', 'gerente']) ? 'flex' : 'none';
+            if (ui.rejectProcessBtn) ui.rejectProcessBtn.style.display = can(['admin', 'gerente']) ? 'flex' : 'none';
+            if (ui.deleteProcessBtn) ui.deleteProcessBtn.style.display = can(['admin', 'gerente']) ? 'flex' : 'none';
+            if (ui.manageAllTeamsBtn) ui.manageAllTeamsBtn.style.display = can(['lideranca', 'admin', 'gerente']) ? 'flex' : 'none';
+            document.querySelectorAll('.manage-team-btn, #manage-team-from-detail-btn').forEach(el => {
+                el.style.display = can(['admin', 'gerente', 'lideranca', 'analista']) ? 'flex' : 'none';
+            });
+            if(ui.observationSection) ui.observationSection.style.display = can(['admin', 'gerente', 'analista']) ? 'block' : 'none';
+            if (ui.manageLayoutBtn) ui.manageLayoutBtn.style.display = can(['admin', 'gerente', 'analista', 'lideranca']) ? 'flex' : 'none';
+            if (ui.editLayoutControls) ui.editLayoutControls.style.display = can(['admin', 'gerente', 'analista']) ? 'flex' : 'none';
+        };
+
+        const renderProcessHeader = (modelInfo, metrics, ops) => {
+            const canEdit = currentUser && ['admin', 'gerente', 'analista'].includes(currentUser.role);
+            const unmanagedOpsCount = ops.filter(op => !op.assignedOperators || op.assignedOperators.length === 0).length;
+            const brandOptions = ['Nike', 'Fila', 'Osklen', 'Outra'].map(brand => `<option value="${brand}" ${modelInfo.brand === brand ? 'selected' : ''}>${brand}</option>`).join('');
+            const brandHtml = `<div id="brand-display" class="flex items-center gap-2"><span id="brand-display-text" class="font-semibold text-red-600">${modelInfo.brand}</span>${canEdit ? `<button id="edit-brand-btn" class="text-slate-500 hover:text-slate-800 p-1 rounded-full" title="Editar Marca"><i data-lucide="edit-3" class="w-4 h-4"></i></button>` : ''}</div><div id="brand-edit-container" class="hidden items-center gap-2"><select id="brand-edit-select" class="w-32 p-1 border bg-white border-slate-300 rounded-md text-sm">${brandOptions}</select><button id="save-brand-btn" class="p-1 text-green-600 hover:bg-green-100 rounded-full" title="Salvar Marca"><i data-lucide="check" class="w-5 h-5"></i></button><button id="cancel-brand-btn" class="p-1 text-red-600 hover:bg-red-100 rounded-full" title="Cancelar"><i data-lucide="x" class="w-5 h-5"></i></button></div>`;
+            const radius = 20; const circumference = 2 * Math.PI * radius; const offset = circumference - (metrics.efficiencyValue / 100) * circumference;
+            const progressRingHtml = `<svg class="w-12 h-12" viewBox="0 0 50 50"><circle class="text-slate-200" stroke-width="5" stroke="currentColor" fill="transparent" r="${radius}" cx="25" cy="25"/><circle class="progress-ring__circle ${metrics.efficiencyColor}" stroke-width="5" stroke-dasharray="${circumference} ${circumference}" style="stroke-dashoffset: ${offset}" stroke="currentColor" fill="transparent" r="${radius}" cx="25" cy="25"/></svg>`;
+            const date = modelInfo.creationDate ? new Date(modelInfo.creationDate) : null;
+            const formattedDate = date ? date.toLocaleDateString('pt-BR') : 'N/D';
+            const formattedTime = date ? date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : 'N/D';
+            const hasLayout = modelInfo.hasLayoutPdf;
+            const hasProcess = modelInfo.hasProcessPdf;
+            const checklistHtml = `<div class="mt-3 p-3 bg-white border rounded-lg space-y-2"><h5 class="text-sm font-bold text-slate-700">Checklist do Balanceamento</h5><div class="flex items-center gap-2 text-sm ${hasProcess ? 'text-green-600 font-medium' : 'text-slate-500'}">${hasProcess ? '<i data-lucide="check-square" class="w-4 h-4"></i>' : '<i data-lucide="square" class="w-4 h-4"></i>'}<span>PDF do Balanceamento Carregado</span></div><div class="flex items-center gap-2 text-sm ${hasLayout ? 'text-green-600 font-medium' : 'text-slate-500'}">${hasLayout ? '<i data-lucide="check-square" class="w-4 h-4"></i>' : '<i data-lucide="square" class="w-4 h-4"></i>'}<span>PDF do Layout Carregado</span></div></div>`;
+            ui.processHeaderBlock.innerHTML = `<div class="flex flex-col md:flex-row justify-between items-start gap-4"><div><h3 class="text-xl font-bold text-slate-800">${modelInfo.model}</h3><div class="mt-1">${brandHtml}</div><dl class="mt-2 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-x-6 gap-y-2 text-sm"><div><dt class="font-semibold text-slate-600">Célula:</dt><dd>${modelInfo.celula || 'N/A'}</dd></div><div><dt class="font-semibold text-slate-600">Nº Pessoas:</dt><dd class="font-mono">${modelInfo.totalPeople}</dd></div><div><dt class="font-semibold text-slate-600">Meta Produção:</dt><dd class="font-mono">${modelInfo.productionGoal}</dd></div><div><dt class="font-semibold text-slate-600">Turno:</dt><dd class="font-mono">${getWorkShiftName(modelInfo.workdayMinutes)}</dd></div><div><dt class="font-semibold text-slate-600">Op. a Gerir:</dt><dd class="font-mono font-bold ${unmanagedOpsCount > 0 ? 'text-amber-600' : 'text-green-600'}">${unmanagedOpsCount}</dd></div></dl><div class="mt-2 text-xs text-slate-500">Carregado por: <span class="font-medium text-slate-700">${modelInfo.ownerEmail}</span> em <span class="font-medium text-slate-700">${formattedDate}</span> às <span class="font-medium text-slate-700">${formattedTime}</span></div></div><div class="flex items-center gap-4 ml-auto"><button id="view-process-pdf-header-btn" class="bg-slate-200 text-slate-800 font-semibold py-2 px-4 rounded-lg hover:bg-slate-300 flex items-center gap-2 text-sm ${modelInfo.hasProcessPdf ? '' : 'hidden'}"><i data-lucide="file-text" class="w-4 h-4"></i>Ver Processo (PDF)</button><button id="manage-layout-btn" class="bg-slate-200 text-slate-800 font-semibold py-2 px-4 rounded-lg hover:bg-slate-300 flex items-center gap-2 text-sm"><i data-lucide="layout-template" class="w-4 h-4"></i>Layout / PDF</button></div></div><div class="mt-4 pt-4 border-t grid grid-cols-1 md:grid-cols-3 gap-4"><div class="bg-white p-4 rounded-lg border"><dt class="text-sm font-medium text-slate-500">Tempo Total do Balanceamento</dt><dd class="mt-1 text-2xl font-bold font-mono text-slate-900">${metrics.totalTime} min</dd></div><div class="bg-white p-4 rounded-lg border flex items-center gap-4">${progressRingHtml}<div><dt class="text-sm font-medium text-slate-500">Eficiência Geral</dt><dd class="mt-1 text-2xl font-bold font-mono ${metrics.efficiencyColor}">${metrics.efficiencyPercentage}</dd></div></div><div class="md:col-span-1">${checklistHtml}</div></div>`;
+            const viewProcessPdfHeaderBtn = document.getElementById('view-process-pdf-header-btn');
+            if (viewProcessPdfHeaderBtn) {
+                viewProcessPdfHeaderBtn.addEventListener('click', () => {
+                    const sanitized = getSanitizedModelName(modelInfo.model);
+                    const localPdf = localStorage.getItem(`process_${sanitized}`);
+                    if (localPdf) {
+                         const win = window.open();
+                         win.document.write('<iframe src="' + localPdf + '" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>');
+                    } else showCustomAlert("PDF não encontrado.");
+                });
+            }
+            const manageLayoutBtn = document.getElementById('manage-layout-btn');
+            if (manageLayoutBtn) manageLayoutBtn.addEventListener('click', openLayoutModal);
+            if (canEdit) {
+                document.getElementById('edit-brand-btn').addEventListener('click', () => toggleBrandEdit(true));
+                document.getElementById('cancel-brand-btn').addEventListener('click', () => toggleBrandEdit(false));
+                document.getElementById('save-brand-btn').addEventListener('click', handleSaveBrand);
+            }
+            lucide.createIcons();
+            ui.processHeaderBlock.style.display = 'block';
+        };
+
+        const addEventListeners = () => {
+            ui.loginForm.addEventListener('submit', handleLogin);
+            ui.logoutBtn.addEventListener('click', handleLogout);
+            ui.publicAccessBtn.addEventListener('click', () => { showView('publicView'); renderPublicContent(); });
+            ui.goToLoginBtn.addEventListener('click', () => showView('loginPage'));
+            ui.mobileMenuBtn.addEventListener('click', () => { ui.sidebar.classList.toggle('-translate-x-full'); });
+            ui.navHome.addEventListener('click', () => showPage('pageHome'));
+            ui.navAnalytics.addEventListener('click', () => showPage('pageAnalytics'));
+            ui.navProcesses.addEventListener('click', () => showPage('pageProcesses'));
+            ui.navAdmin.addEventListener('click', () => showPage('pageAdmin'));
+            if(ui.navOperators) ui.navOperators.addEventListener('click', () => showPage('pageOperators'));
+
+            ui.processesSearchInput?.addEventListener('input', (e) => {
+                const searchTerm = e.target.value.toLowerCase();
+                const filteredMap = new Map();
+                allProcessesMap.forEach((ops, modelName) => {
+                    const op = ops[0];
+                    if (modelName.toLowerCase().includes(searchTerm) || (op.modelInfo.celula && op.modelInfo.celula.toLowerCase().includes(searchTerm))) {
+                        filteredMap.set(modelName, ops);
+                    }
+                });
+                renderProcessCards(filteredMap);
+            });
+            if(ui.operatorsSearchInput) ui.operatorsSearchInput.addEventListener('input', () => renderOperatorsPage());
+
+            ui.processFileBtn.addEventListener('click', handleProcessFiles);
+            ui.operatorBadgeConsultInput.addEventListener('change', handleOperatorBadgeSearch);
+            ui.backToListBtn.addEventListener('click', () => renderOperationsList(lastProcessedOperations));
+            ui.saveObservationBtn.addEventListener('click', handleSaveObservation);
+            ui.manageTeamFromDetailBtn.addEventListener('click', () => openManageTeamModal(currentOperation));
+            ui.manageAllTeamsBtn.addEventListener('click', openBatchTeamManagementModal);
+            ui.approveProcessBtn.addEventListener('click', () => updateProcessStatus(currentProcessModelName, 'aprovado'));
+            ui.rejectProcessBtn.addEventListener('click', () => updateProcessStatus(currentProcessModelName, 'reprovado'));
+            ui.deleteProcessBtn.addEventListener('click', () => openDeleteModal('processo', currentProcessModelName, currentProcessModelName));
+            ui.cancelDeleteBtn.addEventListener('click', () => showModal('deleteConfirmModal', false));
+            ui.confirmDeleteBtn.addEventListener('click', confirmDelete);
+            ui.customAlertOkBtn.addEventListener('click', () => showModal('customAlertModal', false));
+            ui.closeManageTeamModalBtn.addEventListener('click', () => showModal('manageTeamModal', false));
+            ui.doneManageTeamBtn.addEventListener('click', () => showModal('manageTeamModal', false));
+            ui.addOperatorByBadgeInput.addEventListener('change', addOperatorToTeamByBadge);
+            ui.closeBatchModalBtn.addEventListener('click', () => { showModal('batchTeamModal', false); renderOperationsList(lastProcessedOperations); });
+            ui.batchPreviousBtn.addEventListener('click', () => { if (batchTeamIndex > 0) { batchTeamIndex--; renderBatchTeamOperation(); } });
+            ui.batchNextBtn.addEventListener('click', () => { if (batchTeamIndex < batchTeamOps.length - 1) { batchTeamIndex++; renderBatchTeamOperation(); } });
+            ui.batchSkipBtn.addEventListener('click', () => { if (batchTeamIndex < batchTeamOps.length - 1) { batchTeamIndex++; renderBatchTeamOperation(); } else { showModal('batchTeamModal', false); showCustomAlert("Final!", "Aviso"); } });
+            ui.batchFinishBtn.addEventListener('click', () => { showModal('batchTeamModal', false); showCustomAlert("Concluído!", "Sucesso"); renderOperationsList(lastProcessedOperations); });
+            ui.batchAddOperatorInput.addEventListener('change', addOperatorToBatchTeam);
+            ui.cancelEditUserBtn.addEventListener('click', () => showModal('editUserModal', false));
+            ui.editUserForm.addEventListener('submit', handleEditUser);
+            ui.createUserForm.addEventListener('submit', handleCreateUser);
+            ui.cancelOverstaffBtn.addEventListener('click', () => showModal('overstaffJustificationModal', false));
+            ui.confirmOverstaffBtn.addEventListener('click', confirmJustificationAndAddOperator);
+            if(ui.cancelJustificationBtn) ui.cancelJustificationBtn.addEventListener('click', () => showModal('justificationModal', false));
+            if(ui.confirmJustificationBtn) ui.confirmJustificationBtn.addEventListener('click', saveJustification);
+        };
+
+        const addLayoutEventListeners = () => {
+            const handleFileUpload = async (file, type) => {
+                if (!file || !currentProcessModelName) return;
+                const statusEl = type === 'layout' ? ui.layoutUploadStatus : ui.processPdfUploadStatus;
+                statusEl.textContent = 'Carregando...';
+
+                const reader = new FileReader();
+                reader.onload = async (evt) => {
+                    const base64 = evt.target.result;
+                    const sanitized = getSanitizedModelName(currentProcessModelName);
+
+                    if (type === 'layout') {
+                        localStorage.setItem(`layout_${sanitized}`, base64);
+                        currentLayoutUrl = base64;
+                        ui.layoutViewer.style.display = 'block';
+                        ui.layoutPlaceholder.style.display = 'none';
+                        currentRotation = 0;
+                        await renderLayout(currentLayoutUrl);
+                        await apiRequest(API_URL, { method: 'POST', body: JSON.stringify({ action: 'updateModelInfoField', modelName: currentProcessModelName, field: 'hasLayoutPdf', value: true }) });
+                        layoutEditorOps.forEach(op => op.modelInfo.hasLayoutPdf = true);
+                        lastProcessedOperations = JSON.parse(JSON.stringify(layoutEditorOps));
+                        renderProcessHeader(lastProcessedOperations[0].modelInfo, calculateOverallProcessMetrics(lastProcessedOperations), lastProcessedOperations);
+                        statusEl.textContent = 'Sucesso (Local)!';
+                    } else {
+                         localStorage.setItem(`process_${sanitized}`, base64);
+                         await apiRequest(API_URL, { method: 'POST', body: JSON.stringify({ action: 'updateModelInfoField', modelName: currentProcessModelName, field: 'hasProcessPdf', value: true }) });
+                        layoutEditorOps.forEach(op => op.modelInfo.hasProcessPdf = true);
+                        statusEl.textContent = 'Sucesso (Local)!';
+                    }
+                };
+                reader.readAsDataURL(file);
+            };
+
+            ui.layoutPdfUpload?.addEventListener('change', (e) => handleFileUpload(e.target.files[0], 'layout'));
+            ui.processPdfUpload?.addEventListener('change', (e) => handleFileUpload(e.target.files[0], 'process'));
+
+            ui.viewProcessPdfBtn?.addEventListener('click', () => {
+                const model = layoutEditorOps[0]?.modelInfo;
+                if (model && model.hasProcessPdf) {
+                    const sanitized = getSanitizedModelName(model.model);
+                    const localPdf = localStorage.getItem(`process_${sanitized}`);
+                    if (localPdf) {
+                         const win = window.open();
+                         win.document.write('<iframe src="' + localPdf + '" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>');
+                    } else showCustomAlert("PDF não encontrado.");
+                } else showCustomAlert("Nenhum PDF carregado.");
+            });
+
+            ui.connectModeToggle?.addEventListener('change', (e) => {
+                isConnectMode = e.target.checked;
+                if(isConnectMode) {
+                    ui.editLayoutToggle.checked = false;
+                    ui.layoutViewer.classList.remove('edit-mode');
+                    ui.layoutEditorSidebar.style.display = 'none';
+                    ui.saveLayoutBtn.style.display = 'none';
+                    showCustomAlert("Modo Conexão Ativo", "Modo Conexão");
+                }
+                connectStartOpId = null;
+                renderMarkers(ui.showHeatmapToggle.checked);
+            });
+
+            ui.editLayoutToggle?.addEventListener('change', (e) => {
+                const isEditing = e.target.checked;
+                ui.layoutViewer.classList.toggle('edit-mode', isEditing);
+                ui.layoutEditorSidebar.style.display = isEditing ? 'flex' : 'none';
+                ui.saveLayoutBtn.style.display = isEditing ? 'flex' : 'none';
+            });
+
+            ui.saveLayoutBtn?.addEventListener('click', handleSaveLayout);
+            ui.rotateLayoutBtn?.addEventListener('click', async () => {
+                currentRotation = (currentRotation + 90) % 360;
+                if(currentLayoutUrl) {
+                    renderLayout(currentLayoutUrl);
+                    if (currentProcessModelName) {
+                         await apiRequest(API_URL, { method: 'POST', body: JSON.stringify({ action: 'updateModelInfoField', modelName: currentProcessModelName, field: 'rotation', value: currentRotation }) });
+                        lastProcessedOperations.forEach(op => op.modelInfo.rotation = currentRotation);
+                    }
+                }
+            });
+
+            ui.showFlowToggle?.addEventListener('change', (e) => {
+                if(ui.showHeatmapToggle.checked) { e.target.checked = false; lucide.createIcons(); return; }
+                renderFlowLines(false);
+            });
+
+            ui.showHeatmapToggle?.addEventListener('change', (e) => {
+                const showHeatmap = e.target.checked;
+                if(showHeatmap) ui.showFlowToggle.checked = false;
+                ui.showFlowToggle.parentElement.style.display = showHeatmap ? 'none' : 'flex';
+                ui.heatmapLegend.style.display = showHeatmap ? 'flex' : 'none';
+                renderMarkers(showHeatmap);
+            });
+
+            ui.removeAllMarkersBtn?.addEventListener('click', handleRemoveAllMarkers);
+
+            ui.markerContainer.addEventListener('click', async (e) => {
+                if (isConnectMode) {
+                    const marker = e.target.closest('.op-marker');
+                    if (marker && marker.dataset.opId) {
+                        const opId = marker.dataset.opId;
+                        if (!connectStartOpId) {
+                            connectStartOpId = opId;
+                            marker.style.border = "3px solid #9333ea";
+                            showCustomAlert("Origem selecionada. Clique no destino.", "Conexão");
+                        } else {
+                            if (connectStartOpId === opId) { connectStartOpId = null; renderMarkers(ui.showHeatmapToggle.checked); return; }
+                            const connections = layoutEditorOps[0].modelInfo.flowConnections || [];
+                            connections.push({ from: connectStartOpId, to: opId });
+                            const modelName = layoutEditorOps[0].modelInfo.model;
+                            await apiRequest(API_URL, { method: 'POST', body: JSON.stringify({ action: 'updateModelInfoField', modelName: modelName, field: 'flowConnections', value: connections }) });
+                            layoutEditorOps.forEach(op => { if(!op.modelInfo.flowConnections) op.modelInfo.flowConnections = []; op.modelInfo.flowConnections = connections; });
+                            lastProcessedOperations = JSON.parse(JSON.stringify(layoutEditorOps));
+                            connectStartOpId = null;
+                            renderMarkers(ui.showHeatmapToggle.checked);
+                            showCustomAlert("Conexão criada!", "Sucesso");
+                        }
+                    }
+                    return;
+                }
+                if (e.target.closest('.remove-marker-btn')) {
+                    const marker = e.target.closest('.op-marker');
+                    if (marker && marker.dataset.opId) handleRemoveMarker(marker.dataset.opId);
+                }
+            });
+            ui.markerContainer.addEventListener('mouseover', (e) => {
+                const marker = e.target.closest('.op-marker');
+                if (marker) showOperationTooltip(marker, e);
+            });
+            ui.markerContainer.addEventListener('mouseout', (e) => {
+                const marker = e.target.closest('.op-marker');
+                if (marker) ui.operationTooltip.style.display = 'none';
+            });
+            ui.layoutViewer.addEventListener('click', (e) => {
+                if (ui.layoutViewer.classList.contains('edit-mode') && !e.target.closest('.op-marker')) handleMarkerPlacement(e);
+            });
+            ui.closeLayoutModalBtn?.addEventListener('click', () => {
+                if (layoutHasChanges && ui.editLayoutToggle.checked) {
+                    openDeleteModal('unsaved', null, 'alterações não salvas', () => { showModal('layoutModal', false); renderOperationsList(lastProcessedOperations); });
+                } else { showModal('layoutModal', false); renderOperationsList(lastProcessedOperations); }
+            });
+        };
+
+        // =========================================================================================
         // ||||||||||||||||||||||||||| INÍCIO DO CÓDIGO MODIFICADO |||||||||||||||||||||||||||||||
         // =========================================================================================
 
-        // --- Constantes da API (MOCK LOCAL) ---
-        const API_URL = 'mock_api';
-        const UPLOAD_URL = 'mock_upload';
-
-        class LocalDB {
-            constructor() {
-                this.init();
-            }
-
-            init() {
-                if (!localStorage.getItem('db_users')) {
-                    const adminId = 'user_' + Math.random().toString(36).substr(2, 9);
-                    const users = [{
-                        id: adminId,
-                        name: 'Administrador Local',
-                        username: 'admin',
-                        password: 'admin',
-                        role: 'admin'
-                    }];
-                    localStorage.setItem('db_users', JSON.stringify(users));
-                }
-                if (!localStorage.getItem('db_operations')) {
-                    localStorage.setItem('db_operations', JSON.stringify([]));
-                }
-                if (!localStorage.getItem('db_operators')) {
-                    const operators = [
-                        { id: 1, name: 'João Silva', badgeId: '1001' },
-                        { id: 2, name: 'Maria Souza', badgeId: '1002' },
-                        { id: 3, name: 'Carlos Pereira', badgeId: '1003' }
-                    ];
-                    localStorage.setItem('db_operators', JSON.stringify(operators));
-                }
-            }
-
-            get(table) {
-                return JSON.parse(localStorage.getItem('db_' + table) || '[]');
-            }
-
-            save(table, data) {
-                localStorage.setItem('db_' + table, JSON.stringify(data));
-            }
-
-            saveOperations(newOps) {
-                const currentOps = this.get('operations');
-                const updatedOps = [...currentOps, ...newOps];
-                this.save('operations', updatedOps);
-            }
-
-            updateOperationField(opId, field, value) {
-                const ops = this.get('operations');
-                const opIndex = ops.findIndex(o => o.operationId === opId);
-                if (opIndex !== -1) {
-                    ops[opIndex][field] = value;
-                    this.save('operations', ops);
-                    return true;
-                }
-                return false;
-            }
-
-            deleteProcess(modelName) {
-                let ops = this.get('operations');
-                ops = ops.filter(o => o.modelInfo.model !== modelName);
-                this.save('operations', ops);
-            }
-        }
-
-        const db = new LocalDB();
-
-        // --- Funções Auxiliares da API (MOCK) ---
-        async function apiRequest(url, options = {}) {
-             console.log(`[MockAPI] Request to ${url}`, options);
-             await new Promise(r => setTimeout(r, 100)); // Simula latência mínima
-
-             let action = '';
-             let params = {};
-
-             if (url.includes('?')) {
-                 const queryString = url.split('?')[1];
-                 const urlParams = new URLSearchParams(queryString);
-                 action = urlParams.get('action');
-                 urlParams.forEach((val, key) => params[key] = val);
-             }
-
-             let body = {};
-             if (options.body && typeof options.body === 'string') {
-                 try {
-                     body = JSON.parse(options.body);
-                     if (body.action) action = body.action;
-                 } catch(e) {}
-             }
-
-             if (url.includes('mock_upload') || url.includes('upload.php')) {
-                 // Uploads serão tratados diretamente no frontend convertendo para base64
-                 // e chamando uma action de update/save, não via endpoint de upload tradicional.
-                 return { status: 'error', message: "Upload direto não suportado no modo local." };
-             }
-
-             // Handle Actions
-             if (action === 'login') {
-                 const users = db.get('users');
-                 const user = users.find(u => u.username === body.username && u.password === body.password);
-                 if (user) {
-                     const { password, ...safeUser } = user;
-                     return { status: 'success', user: safeUser };
-                 }
-                 return { status: 'error', message: 'Credenciais inválidas (Local: use admin/admin)' };
-             }
-
-             if (action === 'getOperations') {
-                 let ops = db.get('operations');
-                 if (params.modelName) ops = ops.filter(o => o.modelInfo.model === params.modelName);
-                 if (params.status) ops = ops.filter(o => o.status === params.status);
-                 if (params.badgeId) ops = ops.filter(o => o.assignedOperators && o.assignedOperators.some(op => op.badgeId === params.badgeId));
-                 if (params.userRole === 'lideranca') ops = ops.filter(o => o.status === 'aprovado');
-                 return { status: 'success', data: ops };
-             }
-
-             if (action === 'saveProcess') {
-                 db.saveOperations(body.operations);
-                 return { status: 'success' };
-             }
-
-             if (action === 'updateOperation') {
-                 db.updateOperationField(body.opId, body.field, body.value);
-                 return { status: 'success' };
-             }
-
-             if (action === 'updateModelInfoField') {
-                 const ops = db.get('operations');
-                 let updated = false;
-                 ops.forEach(op => {
-                     if (op.modelInfo.model === body.modelName) {
-                         op.modelInfo[body.field] = body.value;
-                         updated = true;
-                     }
-                 });
-                 if (updated) db.save('operations', ops);
-                 return { status: 'success' };
-             }
-
-             if (action === 'updateBrand') {
-                  const ops = db.get('operations');
-                  ops.forEach(op => {
-                      if (op.modelInfo.model === body.modelName) op.modelInfo.brand = body.brand;
-                  });
-                  db.save('operations', ops);
-                  return { status: 'success' };
-             }
-
-             if (action === 'updateProcessStatus') {
-                  const ops = db.get('operations');
-                  ops.forEach(op => {
-                      if (op.modelInfo.model === body.modelName) op.status = body.status;
-                  });
-                  db.save('operations', ops);
-                  return { status: 'success' };
-             }
-
-             if (action === 'deleteProcess') {
-                 db.deleteProcess(body.modelName);
-                 return { status: 'success' };
-             }
-
-             if (action === 'saveLayoutPositions') {
-                 const ops = db.get('operations');
-                 body.operations.forEach(update => {
-                     const op = ops.find(o => o.operationId === update.operationId);
-                     if (op) op.layoutPosition = update.layoutPosition;
-                 });
-                 db.save('operations', ops);
-                 return { status: 'success' };
-             }
-
-             if (action === 'getOperators') {
-                 let operators = db.get('operators');
-                 if (params.badgeId) operators = operators.filter(o => o.badgeId === params.badgeId);
-                 return { status: 'success', data: operators };
-             }
-
-             if (action === 'getUsers') {
-                 return { status: 'success', data: db.get('users').map(({password, ...u}) => u) };
-             }
-
-             if (action === 'createUser') {
-                 const users = db.get('users');
-                 if (users.some(u => u.username === body.username)) return { status: 'error', message: 'Usuário já existe' };
-                 users.push({ id: 'user_' + Date.now(), name: body.name, username: body.username, password: body.password, role: body.role });
-                 db.save('users', users);
-                 return { status: 'success' };
-             }
-
-             if (action === 'updateUser') {
-                 const users = db.get('users');
-                 const idx = users.findIndex(u => u.id === body.id);
-                 if (idx !== -1) {
-                     users[idx].name = body.name;
-                     users[idx].role = body.role;
-                     db.save('users', users);
-                 }
-                 return { status: 'success' };
-             }
-
-             if (action === 'deleteUser') {
-                 let users = db.get('users');
-                 users = users.filter(u => u.id !== body.id);
-                 db.save('users', users);
-                 return { status: 'success' };
-             }
-
-             // Save Base64 File (Custom Action)
-             if (action === 'saveFileBase64') {
-                 const key = body.key; // e.g., 'layout_MODELNAME'
-                 try {
-                     localStorage.setItem(key, body.data);
-                     return { status: 'success' };
-                 } catch (e) {
-                     return { status: 'error', message: 'Quota de armazenamento excedida. Arquivo muito grande.' };
-                 }
-             }
-
-             return { status: 'error', message: 'Action not found in Mock API: ' + action };
-        }
+        // --- Constantes da API ---
+        const API_URL = 'api.php';
+        const UPLOAD_URL = 'upload.php';
 
         // --- Estado Global ---
         let lastProcessedOperations = []; // Dados "oficiais" do banco
@@ -830,15 +1140,12 @@
             Array.from(document.querySelectorAll('[id]')).map(el => [el.id.replace(/-./g, c => c.substring(1).toUpperCase()), el])
         );
 
+        // --- Funções Auxiliares da API ---
+
+
         function getSanitizedModelName(modelName) {
             if (!modelName) return '';
             return modelName.replace(/[^a-zA-Z0-9_.-]/g, '');
-        }
-
-        async function getStoredFile(type, modelName) {
-            const sanitized = getSanitizedModelName(modelName);
-            const key = `file_${type}_${sanitized}`;
-            return localStorage.getItem(key);
         }
 
         // --- Funções de Controle da UI ---
@@ -851,26 +1158,7 @@
             }
         };
 
-        const showPage = (pageId) => {
-            ['pageHome', 'pageProcesses', 'pageAdmin', 'pageAnalytics'].forEach(p => ui[p] && (ui[p].style.display = 'none'));
-            document.querySelectorAll('#main-nav .nav-link').forEach(n => n.classList.remove('active'));
 
-            if (ui[pageId]) ui[pageId].style.display = 'block';
-            const navId = pageId.replace('page', 'nav');
-            if (ui[navId]) ui[navId].classList.add('active');
-
-            // Limpa o estado da página inicial ao navegar para outra página
-            if (pageId !== 'pageHome') {
-                showHomeState('welcome');
-            }
-
-            if (pageId === 'pageHome') fetchAndRenderDashboard();
-            if (pageId === 'pageProcesses') renderProcessesPage();
-            if (pageId === 'pageAdmin') renderAdminPage();
-            if (pageId === 'pageAnalytics') renderAnalyticsPage();
-
-            if (ui.sidebar) ui.sidebar.classList.add('-translate-x-full');
-        };
 
         const showHomeState = (state, text = '') => {
             ['homeLoader', 'welcomeMessage', 'errorMessage', 'processViewContainer', 'operatorConsultResultsContainer'].forEach(el => ui[el] && (ui[el].style.display = 'none'));
@@ -888,31 +1176,7 @@
             }
         };
 
-        const updateUIForPermissions = () => {
-            const role = currentUser?.role || 'publico';
-            const can = (allowedRoles) => allowedRoles.includes(role);
 
-            ui.navAdmin.style.display = can(['admin']) ? 'flex' : 'none';
-            ui.navAnalytics.style.display = can(['admin', 'gerente']) ? 'flex' : 'none';
-            ui.navProcesses.style.display = can(['admin', 'gerente', 'analista', 'lideranca']) ? 'flex' : 'none';
-
-            ui.adminSection.style.display = can(['admin', 'gerente', 'analista']) ? 'block' : 'none';
-
-            if (ui.approveProcessBtn) ui.approveProcessBtn.style.display = can(['admin', 'gerente']) ? 'flex' : 'none';
-            if (ui.rejectProcessBtn) ui.rejectProcessBtn.style.display = can(['admin', 'gerente']) ? 'flex' : 'none';
-            if (ui.deleteProcessBtn) ui.deleteProcessBtn.style.display = can(['admin', 'gerente']) ? 'flex' : 'none';
-
-            if (ui.manageAllTeamsBtn) ui.manageAllTeamsBtn.style.display = can(['lideranca', 'admin', 'gerente']) ? 'flex' : 'none';
-
-            document.querySelectorAll('.manage-team-btn, #manage-team-from-detail-btn').forEach(el => {
-                el.style.display = can(['admin', 'gerente', 'lideranca', 'analista']) ? 'flex' : 'none';
-            });
-
-            if(ui.observationSection) ui.observationSection.style.display = can(['admin', 'gerente', 'analista']) ? 'block' : 'none';
-
-            if (ui.manageLayoutBtn) ui.manageLayoutBtn.style.display = can(['admin', 'gerente', 'analista', 'lideranca']) ? 'flex' : 'none';
-            if (ui.editLayoutControls) ui.editLayoutControls.style.display = can(['admin', 'gerente', 'analista']) ? 'flex' : 'none';
-        };
 
         const showModal = (modalId, show = true) => {
             const modal = ui[modalId];
@@ -1121,29 +1385,26 @@
             const sanitizedModelName = getSanitizedModelName(modelName);
 
             if (firstOp.modelInfo.hasProcessPdf) {
-                document.getElementById('public-view-pdf-btn').addEventListener('click', async () => {
-                    const url = await getStoredFile('process', modelName);
-                    if(url) {
-                         const win = window.open();
-                         win.document.write('<iframe src="' + url + '" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>');
-                    } else {
-                        showCustomAlert("Arquivo PDF não encontrado.");
-                    }
+                document.getElementById('public-view-pdf-btn').addEventListener('click', () => {
+                    const url = `processes/${sanitizedModelName}.pdf`;
+                    window.open(url, '_blank');
                 });
             }
 
             // CORRIGIDO: Verifica se o layout existe antes de mostrar o botão
-            getStoredFile('layout', modelName).then(layoutUrl => {
-                if (layoutUrl) {
-                    const layoutBtn = document.getElementById('public-view-layout-btn');
-                    if(layoutBtn) {
-                       layoutBtn.classList.remove('hidden');
-                       layoutBtn.addEventListener('click', () => {
-                           openLayoutModalForPublic(modelName, operations);
-                       });
+            const layoutUrl = `layouts/${sanitizedModelName}.pdf`;
+            fetch(layoutUrl, { method: 'HEAD' })
+                .then(res => {
+                    if (res.ok) {
+                        const layoutBtn = document.getElementById('public-view-layout-btn');
+                        if(layoutBtn) {
+                           layoutBtn.classList.remove('hidden');
+                           layoutBtn.addEventListener('click', () => {
+                               openLayoutModalForPublic(modelName, operations);
+                           });
+                        }
                     }
-                }
-            });
+                }).catch(err => console.warn(`Layout para ${modelName} não encontrado. Botão oculto.`));
 
             lucide.createIcons();
         };
@@ -1493,127 +1754,7 @@
             lucide.createIcons();
         };
 
-        const renderProcessHeader = (modelInfo, metrics, ops) => {
-            const canEdit = currentUser && ['admin', 'gerente', 'analista'].includes(currentUser.role);
-            const unmanagedOpsCount = ops.filter(op => !op.assignedOperators || op.assignedOperators.length === 0).length;
-            const brandOptions = ['Nike', 'Fila', 'Osklen', 'Outra'].map(brand =>
-                `<option value="${brand}" ${modelInfo.brand === brand ? 'selected' : ''}>${brand}</option>`
-            ).join('');
 
-            const brandHtml = `
-                <div id="brand-display" class="flex items-center gap-2">
-                    <span id="brand-display-text" class="font-semibold text-red-600">${modelInfo.brand}</span>
-                    ${canEdit ? `<button id="edit-brand-btn" class="text-slate-500 hover:text-slate-800 p-1 rounded-full" title="Editar Marca"><i data-lucide="edit-3" class="w-4 h-4"></i></button>` : ''}
-                </div>
-                <div id="brand-edit-container" class="hidden items-center gap-2">
-                     <select id="brand-edit-select" class="w-32 p-1 border bg-white border-slate-300 rounded-md text-sm">${brandOptions}</select>
-                     <button id="save-brand-btn" class="p-1 text-green-600 hover:bg-green-100 rounded-full" title="Salvar Marca"><i data-lucide="check" class="w-5 h-5"></i></button>
-                     <button id="cancel-brand-btn" class="p-1 text-red-600 hover:bg-red-100 rounded-full" title="Cancelar"><i data-lucide="x" class="w-5 h-5"></i></button>
-                </div>
-            `;
-
-            const radius = 20;
-            const circumference = 2 * Math.PI * radius;
-            const offset = circumference - (metrics.efficiencyValue / 100) * circumference;
-
-            const progressRingHtml = `
-                <svg class="w-12 h-12" viewBox="0 0 50 50">
-                    <circle class="text-slate-200" stroke-width="5" stroke="currentColor" fill="transparent" r="${radius}" cx="25" cy="25"/>
-                    <circle class="progress-ring__circle ${metrics.efficiencyColor}"
-                        stroke-width="5"
-                        stroke-dasharray="${circumference} ${circumference}"
-                        style="stroke-dashoffset: ${offset}"
-                        stroke="currentColor" fill="transparent" r="${radius}" cx="25" cy="25"/>
-                </svg>`;
-
-            const date = modelInfo.creationDate ? new Date(modelInfo.creationDate) : null;
-            const formattedDate = date ? date.toLocaleDateString('pt-BR') : 'N/D';
-            const formattedTime = date ? date.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : 'N/D';
-
-            // CORRIGIDO: Lê o status do checklist a partir do modelInfo
-            const hasLayout = modelInfo.hasLayoutPdf;
-            const hasProcess = modelInfo.hasProcessPdf;
-            const checklistHtml = `
-                <div class="mt-3 p-3 bg-white border rounded-lg space-y-2">
-                    <h5 class="text-sm font-bold text-slate-700">Checklist do Balanceamento</h5>
-                    <div class="flex items-center gap-2 text-sm ${hasProcess ? 'text-green-600 font-medium' : 'text-slate-500'}">
-                        ${hasProcess ? '<i data-lucide="check-square" class="w-4 h-4"></i>' : '<i data-lucide="square" class="w-4 h-4"></i>'}
-                        <span>PDF do Balanceamento Carregado</span>
-                    </div>
-                    <div class="flex items-center gap-2 text-sm ${hasLayout ? 'text-green-600 font-medium' : 'text-slate-500'}">
-                        ${hasLayout ? '<i data-lucide="check-square" class="w-4 h-4"></i>' : '<i data-lucide="square" class="w-4 h-4"></i>'}
-                        <span>PDF do Layout Carregado</span>
-                    </div>
-                </div>
-            `;
-
-            ui.processHeaderBlock.innerHTML = `
-                <div class="flex flex-col md:flex-row justify-between items-start gap-4">
-                    <div>
-                        <h3 class="text-xl font-bold text-slate-800">${modelInfo.model}</h3>
-                        <div class="mt-1">${brandHtml}</div>
-                        <dl class="mt-2 grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-x-6 gap-y-2 text-sm">
-                            <div><dt class="font-semibold text-slate-600">Célula:</dt><dd>${modelInfo.celula || 'N/A'}</dd></div>
-                            <div><dt class="font-semibold text-slate-600">Nº Pessoas:</dt><dd class="font-mono">${modelInfo.totalPeople}</dd></div>
-                            <div><dt class="font-semibold text-slate-600">Meta Produção:</dt><dd class="font-mono">${modelInfo.productionGoal}</dd></div>
-                            <div><dt class="font-semibold text-slate-600">Turno:</dt><dd class="font-mono">${getWorkShiftName(modelInfo.workdayMinutes)}</dd></div>
-                            <div><dt class="font-semibold text-slate-600">Op. a Gerir:</dt><dd class="font-mono font-bold ${unmanagedOpsCount > 0 ? 'text-amber-600' : 'text-green-600'}">${unmanagedOpsCount}</dd></div>
-                        </dl>
-                        <div class="mt-2 text-xs text-slate-500">
-                            Carregado por: <span class="font-medium text-slate-700">${modelInfo.ownerEmail}</span> em <span class="font-medium text-slate-700">${formattedDate}</span> às <span class="font-medium text-slate-700">${formattedTime}</span>
-                        </div>
-                    </div>
-                    <div class="flex items-center gap-4 ml-auto">
-                         <button id="view-process-pdf-header-btn" class="bg-slate-200 text-slate-800 font-semibold py-2 px-4 rounded-lg hover:bg-slate-300 flex items-center gap-2 text-sm ${modelInfo.hasProcessPdf ? '' : 'hidden'}">
-                            <i data-lucide="file-text" class="w-4 h-4"></i>Ver Processo (PDF)
-                         </button>
-                         <button id="manage-layout-btn" class="bg-slate-200 text-slate-800 font-semibold py-2 px-4 rounded-lg hover:bg-slate-300 flex items-center gap-2 text-sm">
-                            <i data-lucide="layout-template" class="w-4 h-4"></i>Layout / PDF
-                         </button>
-                    </div>
-                </div>
-                <div class="mt-4 pt-4 border-t grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div class="bg-white p-4 rounded-lg border">
-                        <dt class="text-sm font-medium text-slate-500">Tempo Total do Balanceamento</dt>
-                        <dd class="mt-1 text-2xl font-bold font-mono text-slate-900">${metrics.totalTime} min</dd>
-                    </div>
-                    <div class="bg-white p-4 rounded-lg border flex items-center gap-4">
-                        ${progressRingHtml}
-                        <div>
-                            <dt class="text-sm font-medium text-slate-500">Eficiência Geral</dt>
-                            <dd class="mt-1 text-2xl font-bold font-mono ${metrics.efficiencyColor}">${metrics.efficiencyPercentage}</dd>
-                        </div>
-                    </div>
-                    <div class="md:col-span-1">
-                        ${checklistHtml}
-                    </div>
-                </div>`;
-
-            const viewProcessPdfHeaderBtn = document.getElementById('view-process-pdf-header-btn');
-            if (viewProcessPdfHeaderBtn) {
-                viewProcessPdfHeaderBtn.addEventListener('click', async () => {
-                    const url = await getStoredFile('process', modelInfo.model);
-                    if (url) {
-                        const win = window.open();
-                        win.document.write('<iframe src="' + url + '" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>');
-                    } else {
-                        showCustomAlert("Arquivo PDF não encontrado.");
-                    }
-                });
-            }
-            const manageLayoutBtn = document.getElementById('manage-layout-btn');
-            if (manageLayoutBtn) {
-                manageLayoutBtn.addEventListener('click', openLayoutModal);
-            }
-
-            if (canEdit) {
-                document.getElementById('edit-brand-btn').addEventListener('click', () => toggleBrandEdit(true));
-                document.getElementById('cancel-brand-btn').addEventListener('click', () => toggleBrandEdit(false));
-                document.getElementById('save-brand-btn').addEventListener('click', handleSaveBrand);
-            }
-            lucide.createIcons();
-            ui.processHeaderBlock.style.display = 'block';
-        };
 
         const showSingleOperationView = (opId) => {
             const op = lastProcessedOperations.find(o => o.operationId === opId);
@@ -2430,9 +2571,11 @@
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             ui.markerContainer.innerHTML = '<svg id="flow-line-svg" width="100%" height="100%"></svg>';
 
-            const url = await getStoredFile('layout', currentProcessModelName);
+            const sanitizedModelName = getSanitizedModelName(currentProcessModelName);
+            const url = `layouts/${sanitizedModelName}.pdf`;
+            const checkFile = await fetch(url, { method: 'HEAD' });
 
-            if (url) {
+            if (checkFile.ok) {
                 ui.layoutViewer.style.display = 'block';
                 ui.layoutPlaceholder.style.display = 'none';
                 await renderLayout(url);
@@ -2470,9 +2613,12 @@
             if(ui.rotateLayoutBtn) ui.rotateLayoutBtn.style.display = 'block';
             if(ui.connectModeToggle) { ui.connectModeToggle.checked = false; isConnectMode = false; connectStartOpId = null; }
 
-            const url = await getStoredFile('layout', currentProcessModelName);
+            const sanitizedModelName = getSanitizedModelName(currentProcessModelName);
+            const url = `layouts/${sanitizedModelName}.pdf`;
 
-            if (url) {
+            const checkFile = await fetch(url, { method: 'HEAD' });
+
+            if (checkFile.ok) {
                 currentLayoutUrl = url;
                 ui.layoutViewer.style.display = 'block';
                 ui.layoutPlaceholder.style.display = 'none';
@@ -3226,318 +3372,7 @@
         };
 
         // --- Event Listeners ---
-        const addEventListeners = () => {
-            ui.loginForm.addEventListener('submit', handleLogin);
-            ui.logoutBtn.addEventListener('click', handleLogout);
-            ui.publicAccessBtn.addEventListener('click', () => {
-                showView('publicView');
-                renderPublicContent();
-            });
-            ui.goToLoginBtn.addEventListener('click', () => showView('loginPage'));
 
-            ui.mobileMenuBtn.addEventListener('click', () => {
-                ui.sidebar.classList.toggle('-translate-x-full');
-            });
-            ui.navHome.addEventListener('click', () => showPage('pageHome'));
-            ui.navAnalytics.addEventListener('click', () => showPage('pageAnalytics'));
-            ui.navProcesses.addEventListener('click', () => showPage('pageProcesses'));
-            ui.navAdmin.addEventListener('click', () => showPage('pageAdmin'));
-
-            ui.processesSearchInput?.addEventListener('input', (e) => {
-                const searchTerm = e.target.value.toLowerCase();
-                const filteredMap = new Map();
-                allProcessesMap.forEach((ops, modelName) => {
-                    const op = ops[0];
-                    if (modelName.toLowerCase().includes(searchTerm) ||
-                        (op.modelInfo.celula && op.modelInfo.celula.toLowerCase().includes(searchTerm))) {
-                        filteredMap.set(modelName, ops);
-                    }
-                });
-                renderProcessCards(filteredMap);
-            });
-
-            ui.processFileBtn.addEventListener('click', handleProcessFiles);
-            ui.operatorBadgeConsultInput.addEventListener('change', handleOperatorBadgeSearch);
-            ui.backToListBtn.addEventListener('click', () => renderOperationsList(lastProcessedOperations));
-            ui.saveObservationBtn.addEventListener('click', handleSaveObservation);
-            ui.manageTeamFromDetailBtn.addEventListener('click', () => openManageTeamModal(currentOperation));
-            ui.manageAllTeamsBtn.addEventListener('click', openBatchTeamManagementModal);
-
-            ui.approveProcessBtn.addEventListener('click', () => updateProcessStatus(currentProcessModelName, 'aprovado'));
-            ui.rejectProcessBtn.addEventListener('click', () => updateProcessStatus(currentProcessModelName, 'reprovado'));
-            ui.deleteProcessBtn.addEventListener('click', () => openDeleteModal('processo', currentProcessModelName, currentProcessModelName));
-
-            ui.cancelDeleteBtn.addEventListener('click', () => showModal('deleteConfirmModal', false));
-            ui.confirmDeleteBtn.addEventListener('click', confirmDelete);
-            ui.customAlertOkBtn.addEventListener('click', () => showModal('customAlertModal', false));
-
-            const closeTeamModal = () => {
-                showModal('manageTeamModal', false);
-                if (ui.resultContent.style.display === 'block') {
-                    renderAssignedOperatorsForDetailView();
-                } else {
-                    renderOperationsList(lastProcessedOperations);
-                }
-            }
-            ui.closeManageTeamModalBtn.addEventListener('click', closeTeamModal);
-            ui.doneManageTeamBtn.addEventListener('click', closeTeamModal);
-            ui.addOperatorByBadgeInput.addEventListener('change', addOperatorToTeamByBadge);
-
-            ui.closeBatchModalBtn.addEventListener('click', () => {
-                showModal('batchTeamModal', false);
-                renderOperationsList(lastProcessedOperations);
-            });
-            ui.batchPreviousBtn.addEventListener('click', () => {
-                if (batchTeamIndex > 0) {
-                    batchTeamIndex--;
-                    renderBatchTeamOperation();
-                }
-            });
-            ui.batchNextBtn.addEventListener('click', () => {
-                if (batchTeamIndex < batchTeamOps.length - 1) {
-                    batchTeamIndex++;
-                    renderBatchTeamOperation();
-                }
-            });
-            ui.batchSkipBtn.addEventListener('click', () => {
-                 if (batchTeamIndex < batchTeamOps.length - 1) {
-                    batchTeamIndex++;
-                    renderBatchTeamOperation();
-                 } else {
-                     showModal('batchTeamModal', false);
-                     showCustomAlert("Você chegou ao final da lista!", "Aviso");
-                 }
-            });
-            ui.batchFinishBtn.addEventListener('click', () => {
-                showModal('batchTeamModal', false);
-                showCustomAlert("Gerenciamento de equipes concluído!", "Sucesso");
-                renderOperationsList(lastProcessedOperations);
-            });
-            ui.batchAddOperatorInput.addEventListener('change', addOperatorToBatchTeam);
-            ui.cancelEditUserBtn.addEventListener('click', () => showModal('editUserModal', false));
-            ui.editUserForm.addEventListener('submit', handleEditUser);
-            ui.createUserForm.addEventListener('submit', handleCreateUser);
-            ui.cancelOverstaffBtn.addEventListener('click', () => showModal('overstaffJustificationModal', false));
-            ui.confirmOverstaffBtn.addEventListener('click', () => {
-                justificationContext.reason = ui.overstaffReasonInput.value;
-                if (!justificationContext.reason.trim()) {
-                    showCustomAlert("Por favor, insira uma justificativa.");
-                    return;
-                }
-                confirmJustificationAndAddOperator();
-            });
-        };
-
-        const addLayoutEventListeners = () => {
-            const handleFileUpload = async (file, type) => {
-                if (!file || !currentProcessModelName) return;
-
-                const statusEl = type === 'layout' ? ui.layoutUploadStatus : ui.processPdfUploadStatus;
-                statusEl.textContent = 'Lendo arquivo...';
-
-                const reader = new FileReader();
-                reader.onload = async (e) => {
-                    const base64Data = e.target.result;
-                    const sanitizedModelName = getSanitizedModelName(currentProcessModelName);
-                    const key = `file_${type}_${sanitizedModelName}`;
-
-                    statusEl.textContent = 'Salvando localmente...';
-
-                    const response = await apiRequest(API_URL, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'saveFileBase64', key: key, data: base64Data })
-                    });
-
-                    if (response.status === 'success') {
-                        const flagField = type === 'layout' ? 'hasLayoutPdf' : 'hasProcessPdf';
-                        if (type === 'layout') {
-                            currentLayoutUrl = base64Data;
-                            ui.layoutViewer.style.display = 'block';
-                            ui.layoutPlaceholder.style.display = 'none';
-                            currentRotation = 0;
-                            await renderLayout(currentLayoutUrl);
-                        }
-
-                        const currentModelName = lastProcessedOperations[0].modelInfo.model;
-                        await apiRequest(API_URL, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ action: 'updateModelInfoField', modelName: currentModelName, field: flagField, value: true })
-                        });
-
-                        layoutEditorOps.forEach(op => op.modelInfo[flagField] = true);
-                        lastProcessedOperations = JSON.parse(JSON.stringify(layoutEditorOps));
-                        renderProcessHeader(lastProcessedOperations[0].modelInfo, calculateOverallProcessMetrics(lastProcessedOperations), lastProcessedOperations);
-                        layoutHasChanges = true;
-                        statusEl.textContent = 'Sucesso (Local)!';
-                    } else {
-                        statusEl.textContent = response.message || 'Erro ao salvar.';
-                    }
-                };
-                reader.onerror = () => { statusEl.textContent = 'Erro ao ler arquivo.'; };
-                reader.readAsDataURL(file);
-            };
-
-            ui.layoutPdfUpload?.addEventListener('change', (e) => handleFileUpload(e.target.files[0], 'layout'));
-            ui.processPdfUpload?.addEventListener('change', (e) => handleFileUpload(e.target.files[0], 'process'));
-
-            ui.viewProcessPdfBtn?.addEventListener('click', async () => {
-                const model = layoutEditorOps[0]?.modelInfo;
-                if (model && model.hasProcessPdf) {
-                    const url = await getStoredFile('process', model.model);
-                    if(url) {
-                        const win = window.open();
-                        win.document.write('<iframe src="' + url + '" frameborder="0" style="border:0; top:0px; left:0px; bottom:0px; right:0px; width:100%; height:100%;" allowfullscreen></iframe>');
-                    } else {
-                         showCustomAlert("Arquivo PDF não encontrado no armazenamento local.");
-                    }
-                } else {
-                    showCustomAlert("Nenhum PDF de balanceamento foi carregado para este modelo.");
-                }
-            });
-
-            ui.connectModeToggle?.addEventListener('change', (e) => {
-                isConnectMode = e.target.checked;
-                if(isConnectMode) {
-                    ui.editLayoutToggle.checked = false;
-                    ui.layoutViewer.classList.remove('edit-mode');
-                    ui.layoutEditorSidebar.style.display = 'none';
-                    ui.saveLayoutBtn.style.display = 'none';
-                    showCustomAlert("Modo de Conexão Ativo: Clique na operação de origem e depois na de destino para criar um fluxo.", "Modo Conexão");
-                }
-                connectStartOpId = null;
-                renderMarkers(ui.showHeatmapToggle.checked);
-            });
-
-            ui.editLayoutToggle?.addEventListener('change', (e) => {
-                const isEditing = e.target.checked;
-                ui.layoutViewer.classList.toggle('edit-mode', isEditing);
-                ui.layoutEditorSidebar.style.display = isEditing ? 'flex' : 'none';
-                ui.saveLayoutBtn.style.display = isEditing ? 'flex' : 'none';
-            });
-
-            ui.saveLayoutBtn?.addEventListener('click', handleSaveLayout);
-            ui.rotateLayoutBtn?.addEventListener('click', async () => {
-                currentRotation = (currentRotation + 90) % 360;
-                if(currentLayoutUrl) {
-                    renderLayout(currentLayoutUrl);
-                    // Persist rotation
-                    if (currentProcessModelName) {
-                         await apiRequest(API_URL, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ action: 'updateModelInfoField', modelName: currentProcessModelName, field: 'rotation', value: currentRotation })
-                        });
-                        // Update local state
-                        lastProcessedOperations.forEach(op => op.modelInfo.rotation = currentRotation);
-                    }
-                }
-            });
-
-            ui.showFlowToggle?.addEventListener('change', (e) => {
-                if(ui.showHeatmapToggle.checked) {
-                    e.target.checked = false;
-                    lucide.createIcons();
-                    return;
-                }
-                renderFlowLines(false);
-            });
-
-            ui.showHeatmapToggle?.addEventListener('change', (e) => {
-                const showHeatmap = e.target.checked;
-                if(showHeatmap) {
-                    ui.showFlowToggle.checked = false;
-                }
-                ui.showFlowToggle.parentElement.style.display = showHeatmap ? 'none' : 'flex';
-                ui.heatmapLegend.style.display = showHeatmap ? 'flex' : 'none';
-                renderMarkers(showHeatmap);
-            });
-
-            ui.removeAllMarkersBtn?.addEventListener('click', handleRemoveAllMarkers);
-
-            ui.markerContainer.addEventListener('click', async (e) => {
-                // Connection Logic
-                if (isConnectMode) {
-                    const marker = e.target.closest('.op-marker');
-                    if (marker && marker.dataset.opId) {
-                        const opId = marker.dataset.opId;
-                        if (!connectStartOpId) {
-                            connectStartOpId = opId;
-                            marker.style.border = "3px solid #9333ea"; // Highlight start
-                            showCustomAlert("Origem selecionada. Agora clique no destino.", "Conexão");
-                        } else {
-                            if (connectStartOpId === opId) {
-                                connectStartOpId = null; // Cancel
-                                renderMarkers(ui.showHeatmapToggle.checked);
-                                return;
-                            }
-
-                            // Create connection
-                            const connections = layoutEditorOps[0].modelInfo.flowConnections || [];
-                            connections.push({ from: connectStartOpId, to: opId });
-
-                            // Save
-                            const modelName = layoutEditorOps[0].modelInfo.model;
-                            await apiRequest(API_URL, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ action: 'updateModelInfoField', modelName: modelName, field: 'flowConnections', value: connections })
-                            });
-
-                            // Update local
-                            layoutEditorOps.forEach(op => {
-                                if(!op.modelInfo.flowConnections) op.modelInfo.flowConnections = [];
-                                op.modelInfo.flowConnections = connections;
-                            });
-                            lastProcessedOperations = JSON.parse(JSON.stringify(layoutEditorOps));
-
-                            connectStartOpId = null;
-                            renderMarkers(ui.showHeatmapToggle.checked);
-                            showCustomAlert("Conexão criada!", "Sucesso");
-                        }
-                    }
-                    return; // Stop other interactions
-                }
-
-                if (e.target.closest('.remove-marker-btn')) {
-                    const marker = e.target.closest('.op-marker');
-                    if (marker && marker.dataset.opId) {
-                        handleRemoveMarker(marker.dataset.opId);
-                    }
-                }
-            });
-            ui.markerContainer.addEventListener('mouseover', (e) => {
-                const marker = e.target.closest('.op-marker');
-                if (marker) {
-                    showOperationTooltip(marker, e);
-                }
-            });
-            ui.markerContainer.addEventListener('mouseout', (e) => {
-                const marker = e.target.closest('.op-marker');
-                if (marker) {
-                    ui.operationTooltip.style.display = 'none';
-                }
-            });
-
-            ui.layoutViewer.addEventListener('click', (e) => {
-                if (ui.layoutViewer.classList.contains('edit-mode') && !e.target.closest('.op-marker')) {
-                    handleMarkerPlacement(e);
-                }
-            });
-
-            ui.closeLayoutModalBtn?.addEventListener('click', () => {
-                if (layoutHasChanges && ui.editLayoutToggle.checked) {
-                    openDeleteModal('unsaved', null, 'alterações não salvas', () => {
-                        showModal('layoutModal', false);
-                        renderOperationsList(lastProcessedOperations);
-                    });
-                } else {
-                    showModal('layoutModal', false);
-                    renderOperationsList(lastProcessedOperations);
-                }
-            });
-        };
 
         // --- Ponto de Entrada da Aplicação ---
         document.addEventListener('DOMContentLoaded', () => {
