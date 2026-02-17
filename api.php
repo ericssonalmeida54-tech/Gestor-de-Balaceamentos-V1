@@ -110,7 +110,7 @@ switch ($action) {
                     }
                     
                     // Tipos: s=string, i=integer, d=double/decimal
-                     $stmt->bind_param("ssisddissssss",
+                     $stmt->bind_param("ssissddissssss",
                         $op['operationId'],
                         $op['modelInfo']['model'],
                         $op['sequence'],
@@ -308,9 +308,68 @@ switch ($action) {
         }
         break;
 
+    case 'updateModelInfoField':
+        if (isset($data['modelName'], $data['field'], $data['value'])) {
+            $modelName = $data['modelName'];
+            $field = $data['field'];
+            $value = $data['value'];
+            $allowed = ['brand', 'hasProcessPdf', 'hasLayoutPdf', 'rotation', 'flowConnections'];
+
+            if (in_array($field, $allowed)) {
+                // Busca um registro para pegar o modelInfo atual
+                $selectSql = "SELECT modelInfo FROM operations WHERE model = ? LIMIT 1";
+                $selectStmt = $conn->prepare($selectSql);
+                if ($selectStmt) {
+                    $selectStmt->bind_param("s", $modelName);
+                    $selectStmt->execute();
+                    $result = $selectStmt->get_result();
+                    if ($result->num_rows > 0) {
+                        $row = $result->fetch_assoc();
+                        $currentInfo = json_decode($row['modelInfo'], true) ?? [];
+
+                        // Atualiza o campo no array PHP
+                        $currentInfo[$field] = $value;
+                        $newJson = json_encode($currentInfo);
+
+                        if (json_last_error() === JSON_ERROR_NONE) {
+                            // Salva de volta no banco para TODAS as operações do modelo
+                            $updateSql = "UPDATE operations SET modelInfo = ? WHERE model = ?";
+                            $updateStmt = $conn->prepare($updateSql);
+                            if ($updateStmt) {
+                                $updateStmt->bind_param("ss", $newJson, $modelName);
+                                if ($updateStmt->execute()) {
+                                    $response = ['status' => 'success'];
+                                } else {
+                                    $response['message'] = "Erro SQL ao salvar modelInfo: " . $updateStmt->error;
+                                    error_log("UpdateModelInfoField update failed: " . $updateStmt->error);
+                                }
+                                $updateStmt->close();
+                            } else {
+                                $response['message'] = 'Erro ao preparar update.';
+                            }
+                        } else {
+                            $response['message'] = 'Erro ao codificar novo JSON.';
+                        }
+                    } else {
+                        $response['message'] = 'Modelo não encontrado.';
+                    }
+                    $selectStmt->close();
+                } else {
+                    $response['message'] = 'Erro ao buscar modelo.';
+                    error_log("UpdateModelInfoField select failed: " . $conn->error);
+                }
+            } else {
+                $response['message'] = 'Campo (' . htmlspecialchars($field) . ') não permitido para atualização.';
+            }
+        } else {
+            $response['message'] = 'Dados incompletos para atualizar (requer: modelName, field, value).';
+        }
+        break;
+
     case 'updateBrand':
         if(isset($data['modelName'], $data['brand'])) {
-            $sql = "UPDATE operations SET modelInfo = JSON_SET(modelInfo, '$.brand', ?) WHERE model = ?";
+            // Garante que modelInfo seja tratado como objeto vazio se for NULL, evitando sobrescrita acidental
+            $sql = "UPDATE operations SET modelInfo = JSON_SET(COALESCE(modelInfo, '{}'), '$.brand', ?) WHERE model = ?";
             $stmt = $conn->prepare($sql);
             if ($stmt) {
                 $stmt->bind_param("ss", $data['brand'], $data['modelName']);
